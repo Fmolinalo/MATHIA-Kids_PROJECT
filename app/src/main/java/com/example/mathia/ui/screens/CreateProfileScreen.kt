@@ -204,9 +204,21 @@ fun CreateProfileScreen(
                     }
                 }
 
-                // PIN
+                // Apodo
                 Column {
-                    Text("Crea un PIN de 4 dígitos", fontWeight = FontWeight.Bold)
+                    Text("Apodo / Nombre Gamer (Opcional)", fontWeight = FontWeight.Bold)
+                    OutlinedTextField(
+                        value = lastName, // using as placeholder or field
+                        onValueChange = { lastName = it },
+                        placeholder = { Text("Ej. SuperMathia, SofiEstelar...") },
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(12.dp)
+                    )
+                }
+
+                // PIN -> Código Secreto
+                Column {
+                    Text("Crea tu Código Secreto de 4 dígitos", fontWeight = FontWeight.Bold)
                     OutlinedTextField(
                         value = pin,
                         onValueChange = { if (it.length <= 4) pin = it },
@@ -216,6 +228,7 @@ fun CreateProfileScreen(
                         shape = RoundedCornerShape(12.dp)
                     )
                 }
+
                 
                 Spacer(modifier = Modifier.height(8.dp))
 

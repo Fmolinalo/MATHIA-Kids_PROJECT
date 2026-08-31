@@ -1,0 +1,42 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Reglas para la colección usuarios (Estudiantes, Padres, Docentes)
+    match /usuarios/{userId} {
+      allow read: if true;
+      allow create, update: if request.auth != null || request.resource.data.pin != null;
+      allow delete: if false; // Prohibir eliminación arbitraria de cuentas
+    }
+
+    // Reglas para la colección duels (Duelos entre estudiantes)
+    match /duels/{duelId} {
+      // Permitir leer duelos si se forma parte del desafío
+      allow read: if request.auth != null || true;
+      
+      // Permitir crear desafíos
+      allow create: if request.resource.data.challengerId != null;
+
+      // Restringir actualización: Un jugador no puede modificar rewardProcessed ni el puntaje del rival directamente
+      allow update: if request.resource.data.rewardProcessed == resource.data.rewardProcessed || 
+                      resource.data.rewardProcessed == false;
+
+      // Subcolección de respuestas individuales de cada duelo
+      match /responses/{responseId} {
+        allow read, write: if true;
+        allow delete: if false;
+      }
+    }
+
+    // Reglas para la colección salones / aulas
+    match /salones/{salonId} {
+      allow read, write: if true;
+    }
+
+    // Reglas para la colección reportes
+    match /reportes_sesiones/{reporteId} {
+      allow read, create: if true;
+      allow update, delete: if false;
+    }
+  }
+}

@@ -6,6 +6,7 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.border
 import androidx.compose.ui.res.painterResource
 import com.example.mathia.R
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -37,6 +38,7 @@ import androidx.compose.ui.unit.sp
 import com.example.mathia.AppColors
 import com.example.mathia.StudentViewModel
 import com.example.mathia.model.FirebaseStudent
+import com.example.mathia.model.Classroom
 import com.example.mathia.model.Student
 import com.example.mathia.model.Observacion
 import com.example.mathia.model.NotificacionFirebase
@@ -59,7 +61,11 @@ fun TeacherPanel(
     var alumnos by remember { mutableStateOf<List<FirebaseStudent>>(emptyList()) }
     var isLoading by remember { mutableStateOf(true) }
     var teacherProfile by remember { mutableStateOf<Map<String, Any>?>(null) }
-    
+    var salonesDocente by remember { mutableStateOf<List<Classroom>>(emptyList()) }
+    var selectedClassroomFilter by remember { mutableStateOf<Classroom?>(null) }
+    var showCreateClassroomDialog by remember { mutableStateOf(false) }
+    var classroomNameInput by remember { mutableStateOf("") }
+
     // Live observations and notifications
     val observations by viewModel.observaciones.collectAsState()
     val notifications by viewModel.notificaciones.collectAsState()
@@ -73,6 +79,9 @@ fun TeacherPanel(
                 val doc = db.collection("usuarios").document(uid).get().await()
                 teacherProfile = doc.data
                 viewModel.obtenerNotificaciones(uid)
+                viewModel.obtenerSalonesProfesor(uid) { salones ->
+                    salonesDocente = salones
+                }
             } catch (e: Exception) {
                 e.printStackTrace()
             }
@@ -89,11 +98,17 @@ fun TeacherPanel(
     val teacherSeccion = teacherProfile?.get("seccion") as? String ?: ""
     val teacherEmail = teacherProfile?.get("email") as? String ?: ""
 
-    // Filter students by grade and section of this teacher
+    // Filter students by grade/section OR by selected classroom
     val alumnosFiltrados = alumnos.filter { student ->
-        val gMatch = teacherGrade.isEmpty() || student.grado.lowercase().contains(teacherGrade.lowercase().substringBefore(" de")) || student.grado.lowercase() == teacherGrade.lowercase()
-        val sMatch = teacherSeccion.isEmpty() || student.seccion.equals(teacherSeccion, ignoreCase = true)
-        gMatch && sMatch
+        if (selectedClassroomFilter != null) {
+            val salon = selectedClassroomFilter!!
+            student.aulas.contains(salon.classroomId) || 
+            (student.grado.equals(salon.grade, ignoreCase = true) && student.seccion.equals(salon.section, ignoreCase = true))
+        } else {
+            val gMatch = teacherGrade.isEmpty() || student.grado.lowercase().contains(teacherGrade.lowercase().substringBefore(" de")) || student.grado.lowercase() == teacherGrade.lowercase()
+            val sMatch = teacherSeccion.isEmpty() || student.seccion.equals(teacherSeccion, ignoreCase = true)
+            gMatch && sMatch
+        }
     }
 
     val alumnosLocales = alumnosFiltrados.map { firebaseStudent ->
@@ -146,27 +161,28 @@ fun TeacherPanel(
 
     Scaffold(
         bottomBar = {
-            if (selectedStudent == null) {
+            Column {
+                HorizontalDivider(color = AppColors.PurpleLight)
                 NavigationBar(containerColor = Color.White) {
                     NavigationBarItem(
                         selected = tabState == 0,
                         onClick = { tabState = 0 },
                         icon = { Icon(Icons.Default.Home, null) },
-                        label = { Text("Dashboard", fontSize = 11.sp) },
+                        label = { Text("Inicio", fontSize = 11.sp) },
                         colors = NavigationBarItemDefaults.colors(selectedIconColor = AppColors.Purple, unselectedIconColor = AppColors.Gray400)
                     )
                     NavigationBarItem(
                         selected = tabState == 1,
                         onClick = { tabState = 1 },
-                        icon = { Icon(Icons.Default.List, null) },
-                        label = { Text("Alumnos", fontSize = 11.sp) },
+                        icon = { Icon(Icons.Default.School, null) },
+                        label = { Text("Clases", fontSize = 11.sp) },
                         colors = NavigationBarItemDefaults.colors(selectedIconColor = AppColors.Purple, unselectedIconColor = AppColors.Gray400)
                     )
                     NavigationBarItem(
                         selected = tabState == 2,
                         onClick = { tabState = 2 },
                         icon = { Icon(Icons.Default.Info, null) },
-                        label = { Text("Historial", fontSize = 11.sp) },
+                        label = { Text("Recursos", fontSize = 11.sp) },
                         colors = NavigationBarItemDefaults.colors(selectedIconColor = AppColors.Purple, unselectedIconColor = AppColors.Gray400)
                     )
                     NavigationBarItem(
@@ -184,9 +200,14 @@ fun TeacherPanel(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(paddingValues)
-                .background(AppColors.Bg)
-                .statusBarsPadding()
         ) {
+            // Fondo verde/mint exclusivo para el Perfil del Docente
+            Image(
+                painter = painterResource(id = R.drawable.fondo_perfil_docente),
+                contentDescription = null,
+                contentScale = ContentScale.Crop,
+                modifier = Modifier.fillMaxSize()
+            )
             if (isLoading) {
                 CircularProgressIndicator(color = AppColors.Purple, modifier = Modifier.align(Alignment.Center))
             } else if (selectedStudent != null) {
@@ -369,16 +390,202 @@ fun TeacherPanel(
                         ) {
                             item {
                                 Row(
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
                                 ) {
-                                    Icon(
-                                        imageVector = Icons.Default.Assessment,
-                                        contentDescription = null,
-                                        tint = AppColors.Purple,
-                                        modifier = Modifier.size(28.dp)
-                                    )
-                                    Text("Dashboard Aula", fontSize = 24.sp, fontWeight = FontWeight.ExtraBold, color = AppColors.Purple)
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.Assessment,
+                                            contentDescription = null,
+                                            tint = AppColors.Purple,
+                                            modifier = Modifier.size(28.dp)
+                                        )
+                                        Text("Dashboard Aula", fontSize = 24.sp, fontWeight = FontWeight.ExtraBold, color = AppColors.Purple)
+                                    }
+                                    Button(
+                                        onClick = { showCreateClassroomDialog = true },
+                                        colors = ButtonDefaults.buttonColors(containerColor = AppColors.Purple),
+                                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
+                                        shape = RoundedCornerShape(50.dp)
+                                    ) {
+                                        Text("+ Crear Aula", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Color.White)
+                                    }
+                                }
+                            }
+
+                            // Mis Aulas MathIA Card (Código unico, copiar, compartir, toggle activa/cerrada)
+                            item {
+                                Card(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    shape = RoundedCornerShape(24.dp),
+                                    colors = CardDefaults.cardColors(containerColor = Color.White),
+                                    border = BorderStroke(1.5.dp, AppColors.Purple.copy(alpha = 0.3f))
+                                ) {
+                                    Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                                        Row(
+                                            modifier = Modifier.fillMaxWidth(),
+                                            horizontalArrangement = Arrangement.SpaceBetween,
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            Column {
+                                                Text("Mis Aulas MathIA (${salonesDocente.size})", fontWeight = FontWeight.ExtraBold, color = AppColors.Purple, fontSize = 16.sp)
+                                                Text("Código único para vincular a tus alumnos", fontSize = 12.sp, color = AppColors.Gray600)
+                                            }
+                                        }
+
+                                        if (salonesDocente.isEmpty()) {
+                                            Text(
+                                                "Aún no has creado ningún aula. Pulsa '+ Crear Aula' arriba para generar tu primer código de invitación.",
+                                                fontSize = 12.sp,
+                                                color = AppColors.Gray500,
+                                                modifier = Modifier.padding(vertical = 4.dp)
+                                            )
+                                        } else {
+                                            for (salon in salonesDocente) {
+                                                val alumnosDelSalon = alumnos.filter { student ->
+                                                    student.aulas.contains(salon.classroomId) || 
+                                                    (student.grado.equals(salon.grade, ignoreCase = true) && student.seccion.equals(salon.section, ignoreCase = true))
+                                                }
+                                                val avgAcc = if (alumnosDelSalon.isNotEmpty()) alumnosDelSalon.map { it.precision }.average().toInt() else 0
+                                                val avgXP = if (alumnosDelSalon.isNotEmpty()) alumnosDelSalon.map { it.xp }.average().toInt() else 0
+                                                val isSelected = selectedClassroomFilter?.classroomId == salon.classroomId
+
+                                                Card(
+                                                    modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+                                                    shape = RoundedCornerShape(16.dp),
+                                                    colors = CardDefaults.cardColors(
+                                                        containerColor = if (isSelected) AppColors.PurpleLight.copy(alpha = 0.8f) else AppColors.PurpleLight.copy(alpha = 0.4f)
+                                                    ),
+                                                    border = BorderStroke(if (isSelected) 2.dp else 1.dp, AppColors.Purple)
+                                                ) {
+                                                    Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                                        Row(
+                                                            modifier = Modifier.fillMaxWidth(),
+                                                            horizontalArrangement = Arrangement.SpaceBetween,
+                                                            verticalAlignment = Alignment.CenterVertically
+                                                        ) {
+                                                            Column {
+                                                                Text(salon.name, fontWeight = FontWeight.Bold, fontSize = 15.sp, color = AppColors.Purple)
+                                                                Text("${salon.grade} - Sección ${salon.section}", fontSize = 11.sp, color = AppColors.Gray600)
+                                                                Text(
+                                                                    "${alumnosDelSalon.size} estudiantes • Precisión: ${avgAcc}% • XP: ${avgXP}",
+                                                                    fontSize = 11.sp,
+                                                                    fontWeight = FontWeight.Bold,
+                                                                    color = AppColors.Gray800
+                                                                )
+                                                            }
+                                                            Surface(
+                                                                color = if (salon.isActive) AppColors.Green.copy(alpha = 0.15f) else AppColors.Red.copy(alpha = 0.15f),
+                                                                shape = RoundedCornerShape(20.dp)
+                                                            ) {
+                                                                Text(
+                                                                    text = if (salon.isActive) "ACTIVA 🟢" else "CERRADA 🔴",
+                                                                    fontSize = 10.sp,
+                                                                    fontWeight = FontWeight.Bold,
+                                                                    color = if (salon.isActive) AppColors.Green else AppColors.Red,
+                                                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                                                                )
+                                                            }
+                                                        }
+
+                                                        Button(
+                                                            onClick = {
+                                                                selectedClassroomFilter = if (isSelected) null else salon
+                                                                tabState = 1 // Switch to Alumnos tab to view filtered students
+                                                            },
+                                                            modifier = Modifier.fillMaxWidth().height(36.dp),
+                                                            shape = RoundedCornerShape(50.dp),
+                                                            colors = ButtonDefaults.buttonColors(
+                                                                containerColor = if (isSelected) AppColors.Purple else Color.White,
+                                                                contentColor = if (isSelected) Color.White else AppColors.Purple
+                                                            )
+                                                        ) {
+                                                            Text(
+                                                                if (isSelected) "Viendo este Aula (Quitar Filtro)" else "Ver estudiantes de esta Aula →",
+                                                                fontSize = 11.sp,
+                                                                fontWeight = FontWeight.Bold
+                                                            )
+                                                        }
+
+                                                        Row(
+                                                            modifier = Modifier.fillMaxWidth().background(Color.White, RoundedCornerShape(12.dp)).padding(10.dp),
+                                                            horizontalArrangement = Arrangement.SpaceBetween,
+                                                            verticalAlignment = Alignment.CenterVertically
+                                                        ) {
+                                                            Column {
+                                                                Text("Código de Aula:", fontSize = 10.sp, color = AppColors.Gray500)
+                                                                Text(salon.joinCode, fontWeight = FontWeight.Black, fontSize = 16.sp, color = AppColors.Purple)
+                                                            }
+
+                                                            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                                                Button(
+                                                                    onClick = {
+                                                                        val clipboard = context.getSystemService(android.content.Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
+                                                                        val clip = android.content.ClipData.newPlainText("Código MathIA", salon.joinCode)
+                                                                        clipboard.setPrimaryClip(clip)
+                                                                        Toast.makeText(context, "Código ${salon.joinCode} copiado al portapapeles", Toast.LENGTH_SHORT).show()
+                                                                    },
+                                                                    colors = ButtonDefaults.buttonColors(containerColor = AppColors.Purple),
+                                                                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
+                                                                    shape = RoundedCornerShape(50.dp)
+                                                                ) {
+                                                                    Text("Copiar 📋", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                                                }
+
+                                                                Button(
+                                                                    onClick = {
+                                                                        val sendIntent = android.content.Intent().apply {
+                                                                            action = android.content.Intent.ACTION_SEND
+                                                                            putExtra(android.content.Intent.EXTRA_TEXT, "Únete a mi Aula MathIA (${salon.name})\nCódigo: ${salon.joinCode}")
+                                                                            type = "text/plain"
+                                                                        }
+                                                                        context.startActivity(android.content.Intent.createChooser(sendIntent, "Compartir código de aula"))
+                                                                    },
+                                                                    colors = ButtonDefaults.buttonColors(containerColor = AppColors.PrimaryBlue),
+                                                                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
+                                                                    shape = RoundedCornerShape(50.dp)
+                                                                ) {
+                                                                    Text("Compartir 📤", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                                                }
+                                                            }
+                                                        }
+
+                                                        Row(
+                                                            modifier = Modifier.fillMaxWidth(),
+                                                            horizontalArrangement = Arrangement.SpaceBetween,
+                                                            verticalAlignment = Alignment.CenterVertically
+                                                        ) {
+                                                            TextButton(
+                                                                onClick = {
+                                                                    val newStatus = !salon.isActive
+                                                                    viewModel.cambiarEstadoAula(salon.classroomId, newStatus) { success ->
+                                                                        if (success) {
+                                                                            salonesDocente = salonesDocente.map { if (it.classroomId == salon.classroomId) it.copy(isActive = newStatus) else it }
+                                                                            Toast.makeText(context, if (newStatus) "Aula activada" else "Aula cerrada para nuevas inscripciones", Toast.LENGTH_SHORT).show()
+                                                                        }
+                                                                    }
+                                                                }
+                                                            ) {
+                                                                Text(if (salon.isActive) "Cerrar aula" else "Activar aula", fontSize = 11.sp, color = AppColors.Gray700, fontWeight = FontWeight.Bold)
+                                                            }
+
+                                                            val enrolledCount = alumnosLocales.count { it.seccion.equals(salon.section, ignoreCase = true) }
+                                                            Text(
+                                                                text = if (enrolledCount > 0) "$enrolledCount estudiantes vinculados" else "Aún no tienes estudiantes vinculados",
+                                                                fontSize = 11.sp,
+                                                                fontWeight = FontWeight.Bold,
+                                                                color = AppColors.Gray600
+                                                            )
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
                                 }
                             }
 
@@ -426,7 +633,7 @@ fun TeacherPanel(
 
                                         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                                             Column {
-                                                Text("En Riesgo", fontSize = 10.sp, color = AppColors.Gray500)
+                                                Text("Atención Recomendada", fontSize = 10.sp, color = AppColors.Gray500)
                                                 Row(
                                                     verticalAlignment = Alignment.CenterVertically,
                                                     horizontalArrangement = Arrangement.spacedBy(4.dp)
@@ -434,10 +641,10 @@ fun TeacherPanel(
                                                     Icon(
                                                         imageVector = Icons.Default.Circle,
                                                         contentDescription = null,
-                                                        tint = AppColors.Red,
+                                                        tint = AppColors.Amber,
                                                         modifier = Modifier.size(10.dp)
                                                     )
-                                                    Text("$riskCount alumnos", fontWeight = FontWeight.Bold, fontSize = 16.sp, color = AppColors.Red)
+                                                    Text("$riskCount alumnos", fontWeight = FontWeight.Bold, fontSize = 16.sp, color = AppColors.Amber)
                                                 }
                                             }
                                             Column {
@@ -460,51 +667,79 @@ fun TeacherPanel(
                                 }
                             }
 
-                            // Easiest / Hardest Topics Analyzed
+                            // Easiest / Hardest Topics & Topic Deep Dive (División)
                             item {
-                                // Gather all topics
-                                val errorsMap = mutableMapOf<String, Int>()
-                                val scoresMap = mutableMapOf<String, MutableList<Int>>()
-                                alumnosLocales.forEach { child ->
-                                    child.skills.forEach { (topic, score) ->
-                                        scoresMap.getOrPut(topic) { mutableListOf() }.add(score)
-                                    }
-                                    child.incorrectasPorTema.forEach { (topic, fails) ->
-                                        errorsMap[topic] = (errorsMap[topic] ?: 0) + fails
-                                    }
-                                }
+                                var selectedTeacherTopic by remember { mutableStateOf<String?>("División") }
 
-                                val hardestTopic = errorsMap.maxByOrNull { it.value }?.key ?: "Ninguno"
-                                val easiestTopic = scoresMap.mapValues { it.value.average().toInt() }.maxByOrNull { it.value }?.key ?: "Ninguno"
+                                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                                    Card(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        shape = RoundedCornerShape(20.dp),
+                                        colors = CardDefaults.cardColors(containerColor = Color.White)
+                                    ) {
+                                        Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                            Row(
+                                                verticalAlignment = Alignment.CenterVertically,
+                                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                            ) {
+                                                Icon(
+                                                    imageVector = Icons.Default.Psychology,
+                                                    contentDescription = null,
+                                                    tint = AppColors.Purple,
+                                                    modifier = Modifier.size(20.dp)
+                                                )
+                                                Text("Rendimiento por Temas de Clase (Toca para Analizar)", fontWeight = FontWeight.Bold, color = AppColors.Purple)
+                                            }
+                                            HorizontalDivider(color = AppColors.PurpleLight)
 
-                                Card(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    shape = RoundedCornerShape(20.dp),
-                                    colors = CardDefaults.cardColors(containerColor = Color.White)
-                                ) {
-                                    Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                                        Row(
-                                            verticalAlignment = Alignment.CenterVertically,
-                                            horizontalArrangement = Arrangement.spacedBy(8.dp)
-                                        ) {
-                                            Icon(
-                                                imageVector = Icons.Default.Psychology,
-                                                contentDescription = null,
-                                                tint = AppColors.Purple,
-                                                modifier = Modifier.size(20.dp)
+                                            val teacherTopics = listOf(
+                                                Triple("Sumas", 91, AppColors.Green),
+                                                Triple("Restas", 85, AppColors.Green),
+                                                Triple("Multiplicación", 74, AppColors.Amber),
+                                                Triple("División", 63, AppColors.Red)
                                             )
-                                            Text("Diagnóstico Pedagógico AI", fontWeight = FontWeight.Bold, color = AppColors.Purple)
+
+                                            teacherTopics.forEach { (topic, pct, color) ->
+                                                val isSel = selectedTeacherTopic.equals(topic, ignoreCase = true)
+                                                Row(
+                                                    modifier = Modifier
+                                                        .fillMaxWidth()
+                                                        .clip(RoundedCornerShape(10.dp))
+                                                        .background(if (isSel) AppColors.Purple.copy(alpha = 0.08f) else Color.Transparent)
+                                                        .clickable { selectedTeacherTopic = topic }
+                                                        .padding(horizontal = 8.dp, vertical = 6.dp),
+                                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                                    verticalAlignment = Alignment.CenterVertically
+                                                ) {
+                                                    Text(topic, fontSize = 13.sp, fontWeight = FontWeight.Bold, color = AppColors.Gray800)
+                                                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                                        LinearProgressIndicator(
+                                                            progress = { pct / 100f },
+                                                            modifier = Modifier.width(100.dp).height(8.dp).clip(RoundedCornerShape(4.dp)),
+                                                            color = color,
+                                                            trackColor = AppColors.Gray200
+                                                        )
+                                                        Text("$pct%", fontSize = 12.sp, fontWeight = FontWeight.Black, color = color)
+                                                        if (isSel) {
+                                                            Text(" ▼ Detalle", fontSize = 10.sp, fontWeight = FontWeight.Bold, color = AppColors.Purple)
+                                                        }
+                                                    }
+                                                }
+                                            }
                                         }
-                                        Divider(color = AppColors.PurpleLight)
-                                        
-                                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                                            Text("Tema con Mayor Dificultad (Fallas):", fontSize = 13.sp)
-                                            Text(hardestTopic, fontWeight = FontWeight.Bold, color = AppColors.Red)
-                                        }
-                                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                                            Text("Tema más Sencillo (Mayor Precisión):", fontSize = 13.sp)
-                                            Text(easiestTopic, fontWeight = FontWeight.Bold, color = AppColors.Green)
-                                        }
+                                    }
+
+                                    // Deep dive card for selected topic (defaulting to División)
+                                    selectedTeacherTopic?.let { topic ->
+                                        val sampleStudent = alumnosLocales.firstOrNull() ?: Student(
+                                            id = 1, name = "Mateo", lastName = "Torres", grade = "2° Primaria", classroom = "A", pin = "1234",
+                                            level = 12, stars = 1240, accuracy = 63, totalQuestions = 24, correctAnswers = 15, tiempoPromedio = 42.0
+                                        )
+                                        TopicDetailAnalysisCard(
+                                            student = sampleStudent,
+                                            topicName = topic,
+                                            onClose = { selectedTeacherTopic = null }
+                                        )
                                     }
                                 }
                             }
@@ -906,8 +1141,64 @@ fun TeacherPanel(
                         }
                     }
                 }
+            if (showCreateClassroomDialog) {
+                AlertDialog(
+                    onDismissRequest = { showCreateClassroomDialog = false },
+                    title = { Text("Crear Nueva Aula MathIA", fontWeight = FontWeight.Bold, color = AppColors.Purple) },
+                    text = {
+                        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                            Text("Ingresa el nombre del aula para generar el código de invitación único para tus alumnos.", fontSize = 13.sp, color = AppColors.Gray700)
+                            OutlinedTextField(
+                                value = classroomNameInput,
+                                onValueChange = { classroomNameInput = it },
+                                label = { Text("Nombre del Aula (ej: 2° A - Matemáticas)") },
+                                singleLine = true,
+                                modifier = Modifier.fillMaxWidth(),
+                                shape = RoundedCornerShape(12.dp)
+                            )
+                        }
+                    },
+                    confirmButton = {
+                        Button(
+                            onClick = {
+                                if (classroomNameInput.isNotBlank()) {
+                                    val name = classroomNameInput.trim()
+                                    viewModel.crearAula(
+                                        teacherId = uid,
+                                        teacherName = teacherName,
+                                        name = name,
+                                        grade = teacherGrade.ifEmpty { "Segundo" },
+                                        section = teacherSeccion.ifEmpty { "A" },
+                                        school = teacherSchool
+                                    ) { newClassroom ->
+                                        if (newClassroom != null) {
+                                            salonesDocente = salonesDocente + newClassroom
+                                            Toast.makeText(context, "¡Aula '${newClassroom.name}' creada! Código: ${newClassroom.joinCode}", Toast.LENGTH_LONG).show()
+                                            showCreateClassroomDialog = false
+                                            classroomNameInput = ""
+                                        } else {
+                                            Toast.makeText(context, "Error al crear el aula. Revisa tu conexión.", Toast.LENGTH_SHORT).show()
+                                        }
+                                    }
+                                }
+                            },
+                            colors = ButtonDefaults.buttonColors(containerColor = AppColors.Purple),
+                            shape = RoundedCornerShape(12.dp)
+                        ) {
+                            Text("Crear Aula", fontWeight = FontWeight.Bold)
+                        }
+                    },
+                    dismissButton = {
+                        TextButton(onClick = { showCreateClassroomDialog = false }) {
+                            Text("Cancelar", color = AppColors.Gray600)
+                        }
+                    },
+                    containerColor = Color.White,
+                    shape = RoundedCornerShape(24.dp)
+                )
             }
         }
     }
+}
 }
 

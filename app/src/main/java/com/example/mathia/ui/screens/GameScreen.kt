@@ -7,7 +7,9 @@ import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
+
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -36,10 +38,17 @@ import com.example.mathia.StudentViewModel
 import com.example.mathia.model.Student
 import com.example.mathia.model.RespuestaHistorial
 import com.example.mathia.model.ReporteSesion
+import com.mathia.kids.data.model.HintRequest
+import com.mathia.kids.data.model.HintResponse
+import com.example.mathia.ui.components.AjoloteMascotView
+import com.example.mathia.ui.components.MascotState
 import kotlinx.coroutines.delay
+
 import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
 import java.util.*
+
+import androidx.compose.runtime.saveable.rememberSaveable
 
 @Composable
 fun GameScreen(
@@ -71,71 +80,55 @@ fun GameScreen(
         else -> "¡Increíble! ¡Eres súper veloz resolviendo matemáticas!"
     }
 
-    var questionText by remember { mutableStateOf("") }
-    var correctAnswer by remember { mutableIntStateOf(0) }
-    var userAnswer by remember { mutableStateOf("") }
-    var msg by remember { mutableStateOf("¡Resuelve el desafío!") }
-    var currentStreak by remember { mutableIntStateOf(0) }
-    var currentQuestionStart by remember { mutableLongStateOf(System.currentTimeMillis()) }
-    var currentTime by remember { mutableLongStateOf(0L) }
+    var questionText by rememberSaveable { mutableStateOf("") }
+    var correctAnswer by rememberSaveable { mutableIntStateOf(0) }
+    var userAnswer by rememberSaveable { mutableStateOf("") }
+    var msg by rememberSaveable { mutableStateOf("¡Resuelve el desafío!") }
+    var currentStreak by rememberSaveable { mutableIntStateOf(0) }
+    var currentQuestionStart by rememberSaveable { mutableLongStateOf(System.currentTimeMillis()) }
+    var currentTime by rememberSaveable { mutableLongStateOf(0L) }
     
     // Session state tracking
-    var questionsAnsweredInSession by remember { mutableIntStateOf(0) }
-    var sessionCorrectAnswers by remember { mutableIntStateOf(0) }
-    var sessionIncorrectAnswers by remember { mutableIntStateOf(0) }
-    var sessionTimeSpent by remember { mutableLongStateOf(0L) }
-    var attemptsCount by remember { mutableIntStateOf(1) }
+    var questionsAnsweredInSession by rememberSaveable { mutableIntStateOf(0) }
+    var sessionCorrectAnswers by rememberSaveable { mutableIntStateOf(0) }
+    var sessionIncorrectAnswers by rememberSaveable { mutableIntStateOf(0) }
+    var sessionTimeSpent by rememberSaveable { mutableLongStateOf(0L) }
+    var attemptsCount by rememberSaveable { mutableIntStateOf(1) }
+    var incorrectasConsecutivas by rememberSaveable { mutableIntStateOf(0) }
+    val listaDeIntentos = remember { mutableStateListOf<String>() }
+    var activeHintResponse by remember { mutableStateOf<HintResponse?>(null) }
+    var isLoadingHint by remember { mutableStateOf(false) }
+    var showHintDialog by remember { mutableStateOf(false) }
     
-    var totalStarsGained by remember { mutableIntStateOf(0) }
-    var totalXPGained by remember { mutableIntStateOf(0) }
-    var showSummary by remember { mutableStateOf(false) }
+    var totalStarsGained by rememberSaveable { mutableIntStateOf(0) }
+    var totalXPGained by rememberSaveable { mutableIntStateOf(0) }
+    var showSummary by rememberSaveable { mutableStateOf(false) }
     var isSavingReport by remember { mutableStateOf(false) }
 
+    var mascotState by remember { mutableStateOf(MascotState.DEFAULT) }
     val scope = rememberCoroutineScope()
 
+    // Real Adaptive Difficulty setup
+    val historialRespuestas by viewModel.historialRespuestas.collectAsState()
+    val temaNorm = remember(operation) { com.example.mathia.AdaptiveEngine.normalizarTema(operation) }
+    val initialTopicLevel = remember(student, temaNorm) { student.dificultadPorTema[temaNorm] ?: student.level.coerceIn(1, 5) }
+    val topicAccuracy = student.skills[operation] ?: student.accuracy
+    val adaptiveResult = remember(historialRespuestas, temaNorm, initialTopicLevel, topicAccuracy) {
+        com.example.mathia.AdaptiveEngine.calcularDificultadAdaptativa(temaNorm, initialTopicLevel, historialRespuestas, topicAccuracy.toDouble())
+    }
+
     fun generateNewQuestion() {
-        val (qText, ans) = when (operation) {
-            "Suma" -> {
-                val a = (1..20).random()
-                val b = (1..20).random()
-                Pair("$a + $b", a + b)
-            }
-            "Resta" -> {
-                val a = (10..30).random()
-                val b = (1..a).random()
-                Pair("$a - $b", a - b)
-            }
-            "Multiplicacion" -> {
-                val a = (2..9).random()
-                val b = (2..9).random()
-                Pair("$a × $b", a * b)
-            }
-            "Fracciones" -> {
-                val templates = listOf(
-                    Pair("¿Cuál es el numerador (arriba) de 2/3?", 2),
-                    Pair("¿Cuál es el denominador (abajo) de 3/4?", 4),
-                    Pair("Si divides una pizza en 4 rebanadas y te comes 1, ¿cuántas quedan?", 3),
-                    Pair("Si tienes 8 dulces y regalas la mitad, ¿cuántos te quedan?", 4),
-                    Pair("¿Cuál es la mitad de 12?", 6)
-                )
-                templates.random()
-            }
-            "Series" -> {
-                val templates = listOf(
-                    Pair("2, 4, 6, 8, ?", 10),
-                    Pair("5, 10, 15, 20, ?", 25),
-                    Pair("10, 9, 8, 7, ?", 6),
-                    Pair("3, 6, 9, 12, ?", 15),
-                    Pair("1, 3, 5, 7, ?", 9),
-                    Pair("12, 10, 8, 6, ?", 4)
-                )
-                templates.random()
-            }
-            else -> Pair("2 + 2", 4)
-        }
+        mascotState = MascotState.DEFAULT
+        val activeLevel = adaptiveResult.nivelCalculado
+        val (qText, ans) = com.example.mathia.data.generator.DynamicExerciseGenerator.generateQuestion(operation, activeLevel)
+
         questionText = qText
         correctAnswer = ans
         attemptsCount = 1
+        incorrectasConsecutivas = 0
+        listaDeIntentos.clear()
+        activeHintResponse = null
+        showHintDialog = false
     }
 
     LaunchedEffect(Unit) {
@@ -329,6 +322,67 @@ fun GameScreen(
                         }
                     }
 
+                    // Evolución Card (Demuestra el delta de mejora respecto al nivel previo)
+                    val sessionPrec = if (questionsAnsweredInSession > 0) (sessionCorrectAnswers * 100) / questionsAnsweredInSession else 0
+                    val prevSkillPrec = student.skills[operation] ?: student.accuracy
+                    val deltaPrec = sessionPrec - prevSkillPrec
+
+                    Surface(
+                        color = AppColors.Green.copy(alpha = 0.12f),
+                        shape = RoundedCornerShape(16.dp),
+                        border = BorderStroke(1.dp, AppColors.Green.copy(alpha = 0.4f)),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(12.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(10.dp)
+                        ) {
+                            Icon(Icons.Default.TrendingUp, null, tint = AppColors.Green, modifier = Modifier.size(24.dp))
+                            Column {
+                                Text("¡Evolución Registrada!", fontWeight = FontWeight.Bold, fontSize = 13.sp, color = AppColors.Green)
+                                Text(
+                                    text = "Precisión en $operation: ${prevSkillPrec}% ➔ ${sessionPrec}% (${if (deltaPrec >= 0) "+$deltaPrec%" else "$deltaPrec%"})",
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = AppColors.Gray800
+                                )
+                            }
+                        }
+                    }
+
+                    // Adaptive Difficulty Card
+                    Surface(
+                        color = AppColors.PurpleLight.copy(alpha = 0.5f),
+                        shape = RoundedCornerShape(16.dp),
+                        border = BorderStroke(1.dp, AppColors.Purple.copy(alpha = 0.4f)),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Column(
+                            modifier = Modifier.padding(12.dp),
+                            verticalArrangement = Arrangement.spacedBy(4.dp)
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                Icon(Icons.Default.Tune, null, tint = AppColors.Purple, modifier = Modifier.size(18.dp))
+                                Text(
+                                    text = "Dificultad Adaptativa: ${com.example.mathia.AdaptiveEngine.obtenerNombreNivel(adaptiveResult.nivelCalculado)}",
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 13.sp,
+                                    color = AppColors.Purple
+                                )
+                            }
+                            Text(
+                                text = adaptiveResult.razon,
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                color = AppColors.Gray800
+                            )
+                        }
+                    }
+
                     Spacer(modifier = Modifier.height(8.dp))
 
                     if (isSavingReport) {
@@ -368,6 +422,9 @@ fun GameScreen(
                                     )
                                     
                                     viewModel.guardarReporteSesion(reporte) {
+                                        // Auto update topic difficulty level in Firestore & ViewModel
+                                        viewModel.actualizarDificultadTema(student.pin, operation, adaptiveResult.nivelCalculado)
+                                        
                                         // Also trigger alerts
                                         viewModel.notificarPadre(student.pin, student.name, if (questionsAnsweredInSession > 0) (sessionCorrectAnswers * 100) / questionsAnsweredInSession else 0)
                                         viewModel.notificarDocente(student.pin, student.name, if (questionsAnsweredInSession > 0) (sessionCorrectAnswers * 100) / questionsAnsweredInSession else 0)
@@ -396,6 +453,7 @@ fun GameScreen(
                 modifier = Modifier
                     .fillMaxSize()
                     .background(gameBgColor)
+                    .verticalScroll(rememberScrollState())
                     .padding(20.dp),
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.spacedBy(16.dp)
@@ -502,14 +560,12 @@ fun GameScreen(
                 Box(
                     modifier = Modifier
                         .offset(x = shakeOffset.dp)
-                        .padding(8.dp)
+                        .padding(horizontal = 16.dp, vertical = 4.dp)
                 ) {
-                    Text(
-                        text = msg,
-                        fontWeight = FontWeight.Bold,
-                        color = AppColors.Gray800,
-                        fontSize = 16.sp,
-                        textAlign = TextAlign.Center
+                    AjoloteMascotView(
+                        mascotState = mascotState,
+                        message = msg,
+                        size = 80.dp
                     )
                 }
 
@@ -579,7 +635,10 @@ fun GameScreen(
                                                     sessionCorrectAnswers++
                                                     questionsAnsweredInSession++
                                                     currentStreak++
-                                                    
+                                                    incorrectasConsecutivas = 0
+                                                    showHintDialog = false
+                                                    activeHintResponse = null
+                                                    mascotState = MascotState.CORRECT
                                                     msg = "¡Excelente! +$starsGained estrellas | +$xpGained XP"
                                                     
                                                     if (questionsAnsweredInSession >= 10) {
@@ -596,13 +655,48 @@ fun GameScreen(
                                                         showConfetti = false
                                                     }
                                                 } else {
+                                                    mascotState = MascotState.INCORRECT
                                                     sessionIncorrectAnswers++
-                                                    msg = "¡Casi! Intenta de nuevo"
+                                                    incorrectasConsecutivas++
+                                                    if (userAnswer.isNotEmpty()) {
+                                                        listaDeIntentos.add(userAnswer)
+                                                    }
+                                                    val hintPedagogica = when (operation) {
+                                                        "Division", "División" -> "Pista: Multiplica divisor × cociente o revisa el residuo."
+                                                        "Multiplicacion", "Multiplicación" -> "Pista: Suma el número repetidamente según el multiplicador."
+                                                        "Resta" -> "Pista: Si el número de arriba es menor, pide prestado a la decena."
+                                                        "Fracciones" -> "Pista: El numerador es la parte superior y el denominador el total."
+                                                        "Series" -> "Pista: Fíjate si la serie aumenta o disminuye de 2 en 2 o de 5 en 5."
+                                                        else -> "Pista: Descompón los números en decenas y unidades."
+                                                    }
+                                                    msg = "¡Casi! $hintPedagogica"
                                                     currentStreak = 0
+                                                    val lastAnswer = userAnswer
                                                     userAnswer = ""
                                                     shakeTrigger = true
+                                                    
+                                                    if (viewModel.shouldRequestHint(attemptsCount, incorrectasConsecutivas)) {
+                                                        isLoadingHint = true
+                                                        val hintReq = HintRequest(
+                                                            edad = if (student.edad > 0) student.edad else 7,
+                                                            idioma = "es",
+                                                            tema = operation,
+                                                            enunciado = questionText,
+                                                            respuestaCorrecta = correctAnswer.toString(),
+                                                            listaDeIntentos = listaDeIntentos.toList(),
+                                                            intentosFallidos = incorrectasConsecutivas,
+                                                            dificultad = diff,
+                                                            studentId = student.pin
+                                                        )
+                                                        viewModel.obtenerPistaAdaptativa(hintReq) { resp ->
+                                                            activeHintResponse = resp
+                                                            isLoadingHint = false
+                                                            showHintDialog = true
+                                                        }
+                                                    }
                                                     attemptsCount++
                                                 }
+
                                             }
                                             else -> if (userAnswer.length < 3) userAnswer += key
                                         }
@@ -629,6 +723,169 @@ fun GameScreen(
                 }
             }
 
+            // MathIA AI Tutor Hint Speech Bubble Dialog Overlay
+            if (showHintDialog || isLoadingHint) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(Color.Black.copy(alpha = 0.55f))
+                        .clickable(enabled = false) {},
+                    contentAlignment = Alignment.Center
+                ) {
+                    Card(
+                        modifier = Modifier
+                            .fillMaxWidth(0.92f)
+                            .padding(16.dp),
+                        shape = RoundedCornerShape(24.dp),
+                        colors = CardDefaults.cardColors(containerColor = Color.White),
+                        elevation = CardDefaults.cardElevation(defaultElevation = 8.dp)
+                    ) {
+                        Column(
+                            modifier = Modifier.padding(20.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.spacedBy(12.dp)
+                        ) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                ) {
+                                    Box(
+                                        modifier = Modifier
+                                            .size(54.dp)
+                                            .clip(CircleShape)
+                                            .background(AppColors.PurpleLight)
+                                            .border(2.dp, AppColors.Purple, CircleShape),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Image(
+                                            painter = painterResource(id = tutorImageRes),
+                                            contentDescription = tutorName,
+                                            modifier = Modifier.size(46.dp)
+                                        )
+                                    }
+                                    Column {
+                                        Text(
+                                            text = tutorName,
+                                            fontWeight = FontWeight.Bold,
+                                            fontSize = 16.sp,
+                                            color = AppColors.Purple
+                                        )
+                                        Text(
+                                            text = "Tutor de IA MathIA",
+                                            fontSize = 11.sp,
+                                            color = AppColors.Gray500
+                                        )
+                                    }
+                                }
+
+                                activeHintResponse?.let { hint ->
+                                    val (badgeBg, badgeText) = when (hint.nivelPista) {
+                                        "directa" -> Pair(Color(0xFFFFEBEE), "Pista Directa")
+                                        "moderada" -> Pair(Color(0xFFFFF3E0), "Pista Moderada")
+                                        else -> Pair(Color(0xFFE8F5E9), "Pista Leve")
+                                    }
+                                    Card(
+                                        colors = CardDefaults.cardColors(containerColor = badgeBg),
+                                        shape = RoundedCornerShape(50.dp)
+                                    ) {
+                                        Text(
+                                            text = badgeText,
+                                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
+                                            fontSize = 11.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            color = AppColors.Gray800
+                                        )
+                                    }
+                                }
+                            }
+
+                            Divider(color = AppColors.Gray200)
+
+                            if (isLoadingHint) {
+                                Column(
+                                    horizontalAlignment = Alignment.CenterHorizontally,
+                                    modifier = Modifier.padding(vertical = 16.dp)
+                                ) {
+                                    CircularProgressIndicator(color = AppColors.Purple)
+                                    Spacer(modifier = Modifier.height(12.dp))
+                                    Text(
+                                        text = "$tutorName está preparando una pista pedagógica...",
+                                        fontSize = 13.sp,
+                                        color = AppColors.Gray600,
+                                        textAlign = TextAlign.Center
+                                    )
+                                }
+                            } else {
+                                activeHintResponse?.let { hint ->
+                                    Card(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        colors = CardDefaults.cardColors(containerColor = Color(0xFFF3E5F5)),
+                                        shape = RoundedCornerShape(18.dp)
+                                    ) {
+                                        Column(modifier = Modifier.padding(14.dp)) {
+                                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                                Icon(
+                                                    imageVector = Icons.Default.Lightbulb,
+                                                    contentDescription = null,
+                                                    tint = AppColors.Amber,
+                                                    modifier = Modifier.size(20.dp)
+                                                )
+                                                Spacer(modifier = Modifier.width(6.dp))
+                                                Text(
+                                                    text = "Pista Adaptativa:",
+                                                    fontWeight = FontWeight.Bold,
+                                                    fontSize = 13.sp,
+                                                    color = AppColors.Purple
+                                                )
+                                            }
+                                            Spacer(modifier = Modifier.height(6.dp))
+                                            Text(
+                                                text = hint.pista,
+                                                fontSize = 15.sp,
+                                                fontWeight = FontWeight.Medium,
+                                                color = AppColors.MathiaNavy
+                                            )
+                                            Spacer(modifier = Modifier.height(10.dp))
+                                            Text(
+                                                text = "“${hint.tonoAnimo}”",
+                                                fontSize = 13.sp,
+                                                fontWeight = FontWeight.Bold,
+                                                color = AppColors.Pink
+                                            )
+
+                                            if (hint.isFallback) {
+                                                Spacer(modifier = Modifier.height(6.dp))
+                                                Text(
+                                                    text = "⚡ Pista rápida de respaldo local",
+                                                    fontSize = 10.sp,
+                                                    color = AppColors.Gray500
+                                                )
+                                            }
+                                        }
+                                    }
+
+                                    Button(
+                                        onClick = { showHintDialog = false },
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .height(48.dp),
+                                        shape = RoundedCornerShape(50.dp),
+                                        colors = ButtonDefaults.buttonColors(containerColor = AppColors.Purple)
+                                    ) {
+                                        Text("¡Entendido! Lo intentaré", fontWeight = FontWeight.Bold)
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
             if (showConfetti) {
                 Canvas(modifier = Modifier.fillMaxSize()) {
                     confettiList.forEach { (pos, size, color) ->
@@ -639,3 +896,4 @@ fun GameScreen(
         }
     }
 }
+

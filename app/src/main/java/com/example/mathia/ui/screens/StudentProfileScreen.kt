@@ -22,6 +22,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.AnnotatedString
@@ -50,17 +51,17 @@ import androidx.compose.material.icons.filled.CalendarMonth
 import androidx.compose.material.icons.filled.Lightbulb
 import com.example.mathia.ui.theme.Gray2Dinamico
 import com.example.mathia.ui.theme.GrayDinamico
-import com.example.mathia.ui.theme.Purple
-import com.example.mathia.ui.theme.Purple2
 import com.example.mathia.ui.theme.Purple2Dinamico
 import java.text.SimpleDateFormat
+
 import java.util.*
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
 fun StudentProfileScreen(
     student: Student,
-    onBack: () -> Unit
+    onBack: () -> Unit,
+    onPlayTopic: ((String) -> Unit)? = null
 ) {
     val context = LocalContext.current
     val clipboardManager = LocalClipboardManager.current
@@ -76,23 +77,12 @@ fun StudentProfileScreen(
         Badge("Coleccionista", "Desbloquea al menos 2 avatares en la tienda.", Icons.Default.ShoppingBag, student.unlockedAvatars.size >= 2)
     )
 
-    // Render study calendar for current month (June 2026)
-    val calendarDays = remember {
-        val list = mutableListOf<String>()
-        val cal = Calendar.getInstance()
-        cal.set(2026, Calendar.JUNE, 1)
-        val maxDays = cal.getActualMaximum(Calendar.DAY_OF_MONTH)
-        val firstDayOfWeek = cal.get(Calendar.DAY_OF_WEEK) // 1=Sun, 2=Mon...
-        
-        // Blank leading cells
-        val blanks = if (firstDayOfWeek == Calendar.SUNDAY) 6 else firstDayOfWeek - 2
-        for (i in 0 until blanks) {
-            list.add("")
-        }
-        for (d in 1..maxDays) {
-            list.add("2026-06-%02d".format(d))
-        }
-        list
+    // Dynamic study calendar state in America/Lima timezone
+    val limaZone = remember { java.time.ZoneId.of("America/Lima") }
+    var currentYearMonth by remember { mutableStateOf(java.time.YearMonth.now(limaZone)) }
+    val today = remember { java.time.LocalDate.now(limaZone) }
+    val activeStreak = remember(student.asistencia) {
+        com.example.mathia.model.StreakCalculator.getActiveStreak(student.asistencia)
     }
 
     Scaffold(
@@ -116,34 +106,49 @@ fun StudentProfileScreen(
             )
         }
     ) { paddingValues ->
-        Column(
+        Box(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(paddingValues)
-                .background(MaterialTheme.colorScheme.background)
-                .verticalScroll(rememberScrollState())
-                .padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(16.dp),
-            horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            
-            // ─── Header: Avatar & Name Card ───
-            Card(
-                modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(24.dp),
-                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+            androidx.compose.foundation.Image(
+                painter = androidx.compose.ui.res.painterResource(id = com.example.mathia.R.drawable.fondo_perfil_estudiante),
+                contentDescription = null,
+                modifier = Modifier.fillMaxSize(),
+                contentScale = ContentScale.Crop
+            )
+
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .verticalScroll(rememberScrollState())
+                    .padding(16.dp),
+                verticalArrangement = Arrangement.spacedBy(16.dp),
+                horizontalAlignment = Alignment.CenterHorizontally
             ) {
+                
+                // ─── Header: Avatar & Name Card ───
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(24.dp),
+                    colors = CardDefaults.cardColors(containerColor = Color.White.copy(alpha = 0.93f))
+                ) {
                 Column(
                     modifier = Modifier.padding(20.dp),
                     horizontalAlignment = Alignment.CenterHorizontally
                 ) {
                     Box(
                         modifier = Modifier
-                            .size(90.dp)
-                            .background(AppColors.PurpleLight, CircleShape),
+                            .size(110.dp)
+                            .clip(CircleShape)
+                            .background(AppColors.PrimaryBlue.copy(alpha = 0.12f))
+                            .padding(6.dp),
                         contentAlignment = Alignment.Center
                     ) {
-                        AvatarIcon(student.avatar, modifier = Modifier.size(54.dp), tint = Purple2Dinamico)
+                        com.example.mathia.ui.components.AjoloteMascotView(
+                            mascotState = com.example.mathia.ui.components.MascotState.DEFAULT,
+                            size = 95.dp
+                        )
                     }
                     Spacer(Modifier.height(12.dp))
                     
@@ -256,7 +261,7 @@ fun StudentProfileScreen(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.SpaceEvenly
                     ) {
-                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.weight(1f)) {
                             Row(
                                 verticalAlignment = Alignment.CenterVertically,
                                 horizontalArrangement = Arrangement.spacedBy(4.dp)
@@ -264,9 +269,22 @@ fun StudentProfileScreen(
                                 Icon(Icons.Default.Star, null, tint = AppColors.Amber, modifier = Modifier.size(14.dp))
                                 Text("Estrellas", fontSize = 11.sp, color = AppColors.Gray500)
                             }
-                            Text("${student.stars}", fontWeight = FontWeight.Black, fontSize = 18.sp, color = AppColors.Amber)
+                            val starProgress = (student.stars.toFloat() / com.example.mathia.model.MAX_STARS).coerceIn(0f, 1f)
+                            val starPercent = (starProgress * 100).toInt()
+                            Text("${student.stars} / ${com.example.mathia.model.MAX_STARS}", fontWeight = FontWeight.Black, fontSize = 13.sp, color = AppColors.Amber)
+                            Spacer(Modifier.height(2.dp))
+                            LinearProgressIndicator(
+                                progress = { starProgress },
+                                modifier = Modifier
+                                    .fillMaxWidth(0.85f)
+                                    .height(6.dp)
+                                    .clip(RoundedCornerShape(3.dp)),
+                                color = AppColors.Amber,
+                                trackColor = AppColors.Gray200
+                            )
+                            Text("$starPercent%", fontSize = 10.sp, fontWeight = FontWeight.Bold, color = AppColors.Gray600)
                         }
-                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.weight(1f)) {
                             Row(
                                 verticalAlignment = Alignment.CenterVertically,
                                 horizontalArrangement = Arrangement.spacedBy(4.dp)
@@ -274,7 +292,7 @@ fun StudentProfileScreen(
                                 Icon(Icons.Default.Whatshot, null, tint = AppColors.Pink, modifier = Modifier.size(14.dp))
                                 Text("Racha de Estudio", fontSize = 11.sp, color = AppColors.Gray500)
                             }
-                            Text("${student.streak} días", fontWeight = FontWeight.Black, fontSize = 18.sp, color = AppColors.Pink)
+                            Text("${activeStreak} días", fontWeight = FontWeight.Black, fontSize = 18.sp, color = AppColors.Pink)
                         }
                     }
                 }
@@ -286,7 +304,7 @@ fun StudentProfileScreen(
                 shape = RoundedCornerShape(24.dp),
                 colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
             ) {
-                Column(modifier = Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Column(modifier = Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(8.dp)
@@ -295,38 +313,38 @@ fun StudentProfileScreen(
                         Text("Estadísticas de Aprendizaje", fontWeight = FontWeight.Bold, color = Purple2Dinamico, fontSize = 16.sp)
                     }
                     
-                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                        Column {
+                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                        Column(modifier = Modifier.weight(1f), horizontalAlignment = Alignment.Start) {
                             Text("Tiempo Total", fontSize = 11.sp, color = AppColors.Gray500)
                             val totalMin = student.tiempoTotal / 60
                             val totalSec = student.tiempoTotal % 60
-                            Text("${totalMin}m ${totalSec}s", fontWeight = FontWeight.Bold, fontSize = 16.sp)
+                            Text("${totalMin}m ${totalSec}s", fontWeight = FontWeight.Bold, fontSize = 15.sp)
                         }
-                        Column {
+                        Column(modifier = Modifier.weight(1f), horizontalAlignment = Alignment.End) {
                             Text("Tiempo Promedio", fontSize = 11.sp, color = AppColors.Gray500)
-                            Text("${student.tiempoPromedio.toInt()}s por respuesta", fontWeight = FontWeight.Bold, fontSize = 16.sp)
+                            Text("${student.tiempoPromedio.toInt()}s por respuesta", fontWeight = FontWeight.Bold, fontSize = 15.sp)
                         }
                     }
 
-                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                        Column {
+                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                        Column(modifier = Modifier.weight(1f), horizontalAlignment = Alignment.Start) {
                             Text("Preguntas Respondidas", fontSize = 11.sp, color = AppColors.Gray500)
-                            Text("${student.totalQuestions}", fontWeight = FontWeight.Bold, fontSize = 16.sp)
+                            Text("${student.totalQuestions}", fontWeight = FontWeight.Bold, fontSize = 15.sp)
                         }
-                        Column {
+                        Column(modifier = Modifier.weight(1f), horizontalAlignment = Alignment.End) {
                             Text("Correctas / Incorrectas", fontSize = 11.sp, color = AppColors.Gray500)
-                            Text("${student.correctAnswers} / ${student.totalQuestions - student.correctAnswers}", fontWeight = FontWeight.Bold, fontSize = 16.sp, color = AppColors.Green)
+                            Text("${student.correctAnswers} / ${(student.totalQuestions - student.correctAnswers).coerceAtLeast(0)}", fontWeight = FontWeight.Bold, fontSize = 15.sp, color = AppColors.Green)
                         }
                     }
 
-                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                        Column {
+                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                        Column(modifier = Modifier.weight(1f), horizontalAlignment = Alignment.Start) {
                             Text("Precisión General", fontSize = 11.sp, color = AppColors.Gray500)
-                            Text("${student.accuracy}%", fontWeight = FontWeight.Black, fontSize = 18.sp, color = AppColors.Green)
+                            Text("${student.accuracy}%", fontWeight = FontWeight.Black, fontSize = 17.sp, color = AppColors.Green)
                         }
-                        Column {
+                        Column(modifier = Modifier.weight(1f), horizontalAlignment = Alignment.End) {
                             Text("Aula asignada", fontSize = 11.sp, color = AppColors.Gray500)
-                            Text(student.classroom.ifEmpty { "1ro A" }, fontWeight = FontWeight.Bold, fontSize = 16.sp)
+                            Text(student.classroom.ifEmpty { "1ro A" }, fontWeight = FontWeight.Bold, fontSize = 15.sp)
                         }
                     }
                 }
@@ -352,32 +370,72 @@ fun StudentProfileScreen(
                 }
             }
 
-            // ─── Calendario de estudio ───
+            // ─── Calendario de estudio dinámico ───
             Card(
                 modifier = Modifier.fillMaxWidth(),
                 shape = RoundedCornerShape(24.dp),
-                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
             ) {
                 Column(
                     modifier = Modifier.padding(20.dp),
                     horizontalAlignment = Alignment.CenterHorizontally
                 ) {
+                    val spanishLocale = java.util.Locale.forLanguageTag("es-PE")
+                    val monthName = currentYearMonth.month
+                        .getDisplayName(java.time.format.TextStyle.FULL, spanishLocale)
+                        .replaceFirstChar { if (it.isLowerCase()) it.titlecase(spanishLocale) else it.toString() }
+
+                    // Header with title and month navigation controls
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                        modifier = Modifier.align(Alignment.Start)
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        modifier = Modifier.fillMaxWidth()
                     ) {
-                        Icon(Icons.Default.CalendarMonth, null, tint = Purple2Dinamico, modifier = Modifier.size(20.dp))
-                        Text(
-                            text = "Calendario de Estudio (Junio 2026)",
-                            fontWeight = FontWeight.Bold,
-                            color = Purple2Dinamico,
-                            fontSize = 16.sp
-                        )
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            Icon(Icons.Default.CalendarMonth, null, tint = Purple2Dinamico, modifier = Modifier.size(20.dp))
+                            Text(
+                                text = "Calendario ($monthName ${currentYearMonth.year})",
+                                fontWeight = FontWeight.Bold,
+                                color = Purple2Dinamico,
+                                fontSize = 15.sp
+                            )
+                        }
+
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(4.dp)
+                        ) {
+                            IconButton(
+                                onClick = { currentYearMonth = currentYearMonth.minusMonths(1) },
+                                modifier = Modifier.size(32.dp)
+                            ) {
+                                Text("<", fontWeight = FontWeight.Bold, color = Purple2Dinamico, fontSize = 16.sp)
+                            }
+
+                            TextButton(
+                                onClick = { currentYearMonth = java.time.YearMonth.now(limaZone) },
+                                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
+                                modifier = Modifier.height(28.dp)
+                            ) {
+                                Text("HOY", fontSize = 11.sp, fontWeight = FontWeight.ExtraBold, color = Purple2Dinamico)
+                            }
+
+                            IconButton(
+                                onClick = { currentYearMonth = currentYearMonth.plusMonths(1) },
+                                modifier = Modifier.size(32.dp)
+                            ) {
+                                Text(">", fontWeight = FontWeight.Bold, color = Purple2Dinamico, fontSize = 16.sp)
+                            }
+                        }
                     }
-                    Spacer(modifier = Modifier.height(16.dp))
-                    
-                    // Day of week labels
+
+                    Spacer(modifier = Modifier.height(14.dp))
+
+                    // Day of week labels (L M M J V S D) starting Monday
                     val weekHeaders = listOf("L", "M", "M", "J", "V", "S", "D")
                     Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
                         weekHeaders.forEach { header ->
@@ -386,57 +444,101 @@ fun StudentProfileScreen(
                                 fontWeight = FontWeight.Bold,
                                 color = AppColors.Gray400,
                                 fontSize = 12.sp,
-                                modifier = Modifier.width(36.dp),
+                                modifier = Modifier.weight(1f),
                                 textAlign = TextAlign.Center
                             )
                         }
                     }
+
                     Spacer(modifier = Modifier.height(8.dp))
 
-                    // Calendar Grid
-                    calendarDays.chunked(7).forEach { week ->
+                    // Compute grid cells dynamically for currentYearMonth
+                    val firstDayOfMonth = currentYearMonth.atDay(1)
+                    val leadingBlanks = (firstDayOfMonth.dayOfWeek.value - 1) // Monday = 1 -> 0 blanks
+                    val daysInMonth = currentYearMonth.lengthOfMonth()
+
+                    val monthGridCells = mutableListOf<String>()
+                    for (i in 0 until leadingBlanks) {
+                        monthGridCells.add("")
+                    }
+                    for (day in 1..daysInMonth) {
+                        monthGridCells.add("%04d-%02d-%02d".format(currentYearMonth.year, currentYearMonth.monthValue, day))
+                    }
+
+                    // Render weeks
+                    monthGridCells.chunked(7).forEach { week ->
                         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
                             week.forEach { dateStr ->
                                 if (dateStr.isEmpty()) {
-                                    Box(modifier = Modifier.size(36.dp))
+                                    Spacer(modifier = Modifier.weight(1f).aspectRatio(1f))
                                 } else {
+                                    val cellDate = try { java.time.LocalDate.parse(dateStr) } catch (e: Exception) { null }
+                                    val isToday = cellDate == today
                                     val practiced = student.asistencia.contains(dateStr)
                                     val dayNum = dateStr.split("-").last().toInt().toString()
+
                                     Box(
                                         modifier = Modifier
-                                            .size(36.dp)
+                                            .weight(1f)
+                                            .padding(2.dp)
+                                            .aspectRatio(1f)
                                             .clip(RoundedCornerShape(8.dp))
                                             .background(
-                                                if (practiced) AppColors.GreenLight else Color.Transparent
+                                                when {
+                                                    isToday -> AppColors.PrimaryBlue.copy(alpha = 0.15f)
+                                                    practiced -> AppColors.GreenLight
+                                                    else -> Color.Transparent
+                                                }
                                             )
                                             .border(
-                                                1.dp,
-                                                if (practiced) AppColors.Green else AppColors.Gray200,
-                                                RoundedCornerShape(8.dp)
+                                                width = if (isToday) 2.dp else 1.dp,
+                                                color = when {
+                                                    isToday -> AppColors.PrimaryBlue
+                                                    practiced -> AppColors.Green
+                                                    else -> AppColors.Gray200
+                                                },
+                                                shape = RoundedCornerShape(8.dp)
                                             ),
                                         contentAlignment = Alignment.Center
                                     ) {
                                         Text(
-                                            dayNum,
-                                            fontWeight = if (practiced) FontWeight.ExtraBold else FontWeight.Normal,
-                                            color = if (practiced) AppColors.Green else AppColors.Gray600,
+                                            text = dayNum,
+                                            fontWeight = if (isToday || practiced) FontWeight.ExtraBold else FontWeight.Normal,
+                                            color = when {
+                                                isToday -> AppColors.PrimaryBlue
+                                                practiced -> AppColors.Green
+                                                else -> AppColors.Gray600
+                                            },
                                             fontSize = 12.sp
                                         )
                                     }
                                 }
                             }
+                            // Fill remaining cells in last week row if less than 7
+                            if (week.size < 7) {
+                                for (k in 0 until (7 - week.size)) {
+                                    Spacer(modifier = Modifier.weight(1f).aspectRatio(1f))
+                                }
+                            }
                         }
-                        Spacer(modifier = Modifier.height(4.dp))
+                        Spacer(modifier = Modifier.height(2.dp))
                     }
-                    Spacer(modifier = Modifier.height(8.dp))
+
+                    Spacer(modifier = Modifier.height(10.dp))
+
                     Row(
                         modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.Center,
+                        horizontalArrangement = Arrangement.SpaceEvenly,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Box(modifier = Modifier.size(12.dp).background(AppColors.GreenLight, RoundedCornerShape(2.dp)).border(1.dp, AppColors.Green, RoundedCornerShape(2.dp)))
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text("Días practicados con MathIA", fontSize = 11.sp, color = AppColors.Gray600)
+                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                            Box(modifier = Modifier.size(12.dp).background(AppColors.GreenLight, RoundedCornerShape(2.dp)).border(1.dp, AppColors.Green, RoundedCornerShape(2.dp)))
+                            Text("Días practicados", fontSize = 11.sp, color = AppColors.Gray600)
+                        }
+                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                            Box(modifier = Modifier.size(12.dp).background(AppColors.PrimaryBlue.copy(alpha = 0.15f), RoundedCornerShape(2.dp)).border(2.dp, AppColors.PrimaryBlue, RoundedCornerShape(2.dp)))
+                            Text("Hoy", fontSize = 11.sp, color = AppColors.Gray600, fontWeight = FontWeight.Bold)
+                        }
                     }
                 }
             }
@@ -517,7 +619,23 @@ fun StudentProfileScreen(
                         Text("Mateo está revisando tus estadísticas. ¡Sigue practicando para recibir sugerencias!", fontSize = 13.sp, color = Gray2Dinamico)
                     } else {
                         student.recomendaciones.forEach { rec ->
-                            Text("• $rec", fontSize = 13.sp, color = Gray2Dinamico)
+                            Column(modifier = Modifier.padding(vertical = 4.dp)) {
+                                Text("• $rec", fontSize = 13.sp, color = Gray2Dinamico)
+                                if (onPlayTopic != null) {
+                                    val targetTopic = com.example.mathia.ui.components.extractTopicFromRecommendation(rec)
+                                    Button(
+                                        onClick = { onPlayTopic(targetTopic) },
+                                        colors = ButtonDefaults.buttonColors(containerColor = Purple2Dinamico),
+                                        shape = RoundedCornerShape(50.dp),
+                                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
+                                        modifier = Modifier.padding(top = 4.dp).height(32.dp)
+                                    ) {
+                                        Icon(Icons.Default.PlayArrow, null, tint = Color.White, modifier = Modifier.size(14.dp))
+                                        Spacer(Modifier.width(4.dp))
+                                        Text("Practicar $targetTopic Ahora", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = Color.White)
+                                    }
+                                }
+                            }
                         }
                     }
                 }
@@ -548,6 +666,7 @@ fun StudentProfileScreen(
             }
         }
     }
+}
 }
 
 data class Badge(

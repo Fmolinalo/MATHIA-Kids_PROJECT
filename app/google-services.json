@@ -6,14 +6,20 @@
     "storage_bucket": "mathia-4ff49.firebasestorage.app"
   },
   "client": [
+
     {
       "client_info": {
-        "mobilesdk_app_id": "1:325445164260:android:0f44f86583a17e839820f1",
+        "mobilesdk_app_id": "1:325445164260:android:a3067e409ab0778b9820f1",
         "android_client_info": {
-          "package_name": "com.example.mathia"
+          "package_name": "com.caffeinetechnologies.mathiakids"
         }
       },
-      "oauth_client": [],
+      "oauth_client": [
+        {
+          "client_id": "325445164260-cbtmpul8kpe4p5ebd3echpj19qbommos.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
       "api_key": [
         {
           "current_key": "AIzaSyAVQJl42ZY_xS0KFYJmE9fZSxQHgv3edYA"
@@ -21,7 +27,49 @@
       ],
       "services": {
         "appinvite_service": {
-          "other_platform_oauth_client": []
+          "other_platform_oauth_client": [
+            {
+              "client_id": "325445164260-cbtmpul8kpe4p5ebd3echpj19qbommos.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    },
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:325445164260:android:0f44f86583a17e839820f1",
+        "android_client_info": {
+          "package_name": "com.example.mathia"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "325445164260-d0a8nha5n75nuhpo414qrbdjbghdscai.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.example.mathia",
+            "certificate_hash": "9a8b867bea32cfba4b0afc74bceab0d0bc2c6f3e"
+          }
+        },
+        {
+          "client_id": "325445164260-cbtmpul8kpe4p5ebd3echpj19qbommos.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyAVQJl42ZY_xS0KFYJmE9fZSxQHgv3edYA"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "325445164260-cbtmpul8kpe4p5ebd3echpj19qbommos.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
         }
       }
     }

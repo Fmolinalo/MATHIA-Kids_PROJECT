@@ -45,7 +45,6 @@ fun AvatarIcon(
     modifier: Modifier = Modifier,
     tint: Color = Color.Unspecified
 ) {
-    // El "Semáforo": Evaluamos qué avatar nos están pidiendo
     when (avatarKey) {
         "🦖", "dino", "avatar_dino" -> {
             Image(
@@ -83,11 +82,9 @@ fun AvatarIcon(
             )
         }
         else -> {
-            // Si no es ninguno de los 5 especiales, vuelve al comportamiento clásico
-            Icon(
-                imageVector = AvatarHelper.getAvatarIcon(avatarKey),
-                contentDescription = "Avatar",
-                tint = tint, // El tinte solo se aplica a los íconos clásicos
+            Image(
+                painter = painterResource(id = R.drawable.ajolote_estudiante),
+                contentDescription = "Ajolote Mateo Estudiante",
                 modifier = modifier
             )
         }

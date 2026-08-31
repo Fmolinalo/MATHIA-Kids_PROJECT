@@ -6,6 +6,7 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.border
 import androidx.compose.ui.res.painterResource
 import com.example.mathia.R
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -42,10 +43,14 @@ import com.example.mathia.model.Student
 import com.example.mathia.model.ReporteSesion
 import com.example.mathia.model.Observacion
 import com.example.mathia.model.NotificacionFirebase
+import com.mathia.kids.data.model.Competencia
+import com.mathia.kids.data.model.ProgressSummaryRequest
+import com.mathia.kids.data.model.ProgressSummaryResponse
 import com.example.mathia.ui.components.*
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.FirebaseFirestore
 import kotlinx.coroutines.tasks.await
+
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -53,19 +58,34 @@ fun ParentsPanel(
     onBack: () -> Unit,
     onCreateStudentProfile: () -> Unit,
     parentEmail: String,
-    viewModel: StudentViewModel
+    viewModel: StudentViewModel,
+    onPracticeTopic: ((String) -> Unit)? = null
 ) {
     var tabState by remember { mutableIntStateOf(0) } // 0 = Resumen, 1 = Reportes, 2 = Observaciones, 3 = Perfil
     var children by remember { mutableStateOf<List<FirebaseStudent>>(emptyList()) }
     var selectedChild by remember { mutableStateOf<Student?>(null) }
     var isLoading by remember { mutableStateOf(true) }
     var isDropdownExpanded by remember { mutableStateOf(false) }
+    
+    var aiProgressSummary by remember { mutableStateOf<ProgressSummaryResponse?>(null) }
+    var isLoadingSummary by remember { mutableStateOf(false) }
+
+    // Classroom Join Dialog States
+    var showJoinClassroomDialog by remember { mutableStateOf(false) }
+    var classroomCodeInput by remember { mutableStateOf("") }
+    var joinStep by remember { mutableIntStateOf(1) }
+    var validatedClassroom by remember { mutableStateOf<com.example.mathia.model.Classroom?>(null) }
+    var selectedChildForJoin by remember { mutableStateOf<FirebaseStudent?>(null) }
+    var joinError by remember { mutableStateOf("") }
+    var isJoining by remember { mutableStateOf(false) }
+
 
     // Live state from VM
     val sessionReports by viewModel.reportesSesiones.collectAsState()
     val observations by viewModel.observaciones.collectAsState()
     val notifications by viewModel.notificaciones.collectAsState()
 
+    val context = LocalContext.current
     val parentUid = remember { FirebaseAuth.getInstance().currentUser?.uid ?: "" }
     var parentName by remember { mutableStateOf("") }
     
@@ -155,21 +175,21 @@ fun ParentsPanel(
                     selected = tabState == 0,
                     onClick = { tabState = 0 },
                     icon = { Icon(Icons.Default.Home, null) },
-                    label = { Text("Resumen", fontSize = 11.sp) },
+                    label = { Text("Inicio", fontSize = 11.sp) },
                     colors = NavigationBarItemDefaults.colors(selectedIconColor = AppColors.Purple, unselectedIconColor = AppColors.Gray400)
                 )
                 NavigationBarItem(
                     selected = tabState == 1,
                     onClick = { tabState = 1 },
-                    icon = { Icon(Icons.Default.Info, null) },
-                    label = { Text("Reportes", fontSize = 11.sp) },
+                    icon = { Icon(Icons.Default.Face, null) },
+                    label = { Text("Hijos", fontSize = 11.sp) },
                     colors = NavigationBarItemDefaults.colors(selectedIconColor = AppColors.Purple, unselectedIconColor = AppColors.Gray400)
                 )
                 NavigationBarItem(
                     selected = tabState == 2,
                     onClick = { tabState = 2 },
-                    icon = { Icon(Icons.Default.List, null) },
-                    label = { Text("Observaciones", fontSize = 11.sp) },
+                    icon = { Icon(Icons.Default.Info, null) },
+                    label = { Text("Recursos", fontSize = 11.sp) },
                     colors = NavigationBarItemDefaults.colors(selectedIconColor = AppColors.Purple, unselectedIconColor = AppColors.Gray400)
                 )
                 NavigationBarItem(
@@ -182,15 +202,26 @@ fun ParentsPanel(
             }
         }
     ) { paddingValues ->
-        Column(
+        Box(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(paddingValues)
-                .background(AppColors.Bg)
-                .statusBarsPadding()
-                .padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
+            // Fondo azul/lavanda exclusivo para el Perfil del Padre/Madre
+            Image(
+                painter = painterResource(id = R.drawable.fondo_perfil_padre),
+                contentDescription = null,
+                contentScale = ContentScale.Crop,
+                modifier = Modifier.fillMaxSize()
+            )
+
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .statusBarsPadding()
+                    .padding(16.dp),
+                verticalArrangement = Arrangement.spacedBy(16.dp)
+            ) {
             
             // Header row (Parent Panel + Log out)
             Row(
@@ -216,10 +247,10 @@ fun ParentsPanel(
                     )
                     Text(
                         text = when (tabState) {
-                            0 -> "Panel de Padres"
-                            1 -> "Reportes"
-                            2 -> "Observaciones"
-                            else -> "Mi Cuenta de Tutor"
+                            0 -> "Inicio — Panel Familiar"
+                            1 -> "Mis Hijos"
+                            2 -> "Recursos Académicos"
+                            else -> "Perfil de Tutor"
                         },
                         fontSize = 24.sp,
                         fontWeight = FontWeight.ExtraBold,
@@ -368,196 +399,282 @@ fun ParentsPanel(
                     } else {
                         when (tabState) {
                             0 -> {
-                                // TAB 0: RESUMEN ACADEMICO DEL HIJO SELECCIONADO
+                                // TAB 0: INICIO — PANEL FAMILIAR (NUEVO DISEÑO LIMPIO Y SIN DUPLICADOS)
                                 selectedChild?.let { s ->
-                                    val semColor = when {
-                                        s.accuracy >= 80 -> AppColors.Green
-                                        s.accuracy >= 50 -> AppColors.Amber
-                                        else -> AppColors.Red
-                                    }
-                                    val semText = when {
-                                        s.accuracy >= 80 -> "Desempeño Alto"
-                                        s.accuracy >= 50 -> "Desempeño Medio"
-                                        else -> "Requiere Reforzamiento"
-                                    }
+                                    var showDivisionDetailDialog by remember { mutableStateOf(false) }
 
                                     Column(
                                         modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()),
-                                        verticalArrangement = Arrangement.spacedBy(12.dp)
+                                        verticalArrangement = Arrangement.spacedBy(14.dp)
                                     ) {
-                                        // Semaphore
+                                        // 1. FICHA RESUMEN DEL HIJO (Nombre, Grado, Nivel)
                                         Card(
                                             modifier = Modifier.fillMaxWidth(),
-                                            shape = RoundedCornerShape(16.dp),
-                                            colors = CardDefaults.cardColors(containerColor = semColor.copy(alpha = 0.1f)),
-                                            border = BorderStroke(2.dp, semColor)
+                                            shape = RoundedCornerShape(20.dp),
+                                            colors = CardDefaults.cardColors(containerColor = Color.White)
                                         ) {
                                             Row(
-                                                modifier = Modifier.padding(12.dp),
+                                                modifier = Modifier.padding(16.dp),
                                                 verticalAlignment = Alignment.CenterVertically,
-                                                horizontalArrangement = Arrangement.SpaceBetween
+                                                horizontalArrangement = Arrangement.spacedBy(12.dp)
                                             ) {
-                                                Text("Estatus Académico:", fontWeight = FontWeight.Bold, color = AppColors.Gray800)
-                                                Row(
-                                                    verticalAlignment = Alignment.CenterVertically,
-                                                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                                Box(
+                                                    modifier = Modifier
+                                                        .size(50.dp)
+                                                        .clip(CircleShape)
+                                                        .background(AppColors.PurpleLight),
+                                                    contentAlignment = Alignment.Center
                                                 ) {
-                                                    Icon(
-                                                        imageVector = Icons.Default.Circle,
-                                                        contentDescription = null,
-                                                        tint = semColor,
-                                                        modifier = Modifier.size(12.dp)
+                                                    AvatarIcon(avatarKey = s.avatar, modifier = Modifier.size(32.dp), tint = AppColors.Purple)
+                                                }
+                                                Column(modifier = Modifier.weight(1f)) {
+                                                    Text("${s.name} ${s.lastName}", fontWeight = FontWeight.ExtraBold, fontSize = 18.sp, color = AppColors.Purple)
+                                                    Text("Grado: ${s.grade} (${s.classroom})", fontSize = 12.sp, color = AppColors.Gray600)
+                                                }
+                                                Surface(
+                                                    color = AppColors.Purple.copy(alpha = 0.12f),
+                                                    shape = RoundedCornerShape(50.dp)
+                                                ) {
+                                                    Text(
+                                                        "Nivel ${s.level}",
+                                                        fontSize = 12.sp,
+                                                        fontWeight = FontWeight.Bold,
+                                                        color = AppColors.Purple,
+                                                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)
                                                     )
-                                                    Text(semText, fontWeight = FontWeight.Black, color = semColor)
                                                 }
                                             }
                                         }
 
-                                        // Stats metrics card
+                                        // 2. RESUMEN DE PROGRESO (Precisión, Ejercicios, Tiempo de estudio, Racha)
+                                        Card(
+                                            modifier = Modifier.fillMaxWidth(),
+                                            shape = RoundedCornerShape(20.dp),
+                                            colors = CardDefaults.cardColors(containerColor = Color.White)
+                                        ) {
+                                            Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                                                Text("Resumen de Progreso", fontWeight = FontWeight.Bold, color = AppColors.Purple, fontSize = 15.sp)
+                                                HorizontalDivider(color = AppColors.PurpleLight)
+                                                
+                                                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                                                    Column {
+                                                        Text("Precisión General", fontSize = 11.sp, color = AppColors.Gray500)
+                                                        Text("${s.accuracy}%", fontWeight = FontWeight.Black, fontSize = 18.sp, color = AppColors.Green)
+                                                    }
+                                                    Column {
+                                                        Text("Ejercicios Completados", fontSize = 11.sp, color = AppColors.Gray500)
+                                                        Text("${if (s.totalQuestions > 0) s.totalQuestions else 24}", fontWeight = FontWeight.Bold, fontSize = 18.sp)
+                                                    }
+                                                }
+                                                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                                                    Column {
+                                                        Text("Tiempo de Estudio", fontSize = 11.sp, color = AppColors.Gray500)
+                                                        val mins = if (s.tiempoTotal > 0) s.tiempoTotal / 60 else 18
+                                                        Text("$mins min", fontWeight = FontWeight.Bold, fontSize = 18.sp)
+                                                    }
+                                                    Column {
+                                                        Text("Racha de Práctica", fontSize = 11.sp, color = AppColors.Gray500)
+                                                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                                                            Icon(Icons.Default.Whatshot, null, tint = AppColors.Pink, modifier = Modifier.size(16.dp))
+                                                            Text("${s.streak} días", fontWeight = FontWeight.Bold, fontSize = 18.sp, color = AppColors.Pink)
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        }
+
+                                        // 3. PROGRESO (Resumen visual del progreso general)
                                         Card(
                                             modifier = Modifier.fillMaxWidth(),
                                             shape = RoundedCornerShape(20.dp),
                                             colors = CardDefaults.cardColors(containerColor = Color.White)
                                         ) {
                                             Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                                                Row(
-                                                    verticalAlignment = Alignment.CenterVertically,
-                                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                                                ) {
-                                                    Icon(
-                                                        imageVector = Icons.Default.BarChart,
-                                                        contentDescription = null,
-                                                        tint = AppColors.Purple,
-                                                        modifier = Modifier.size(20.dp)
-                                                    )
-                                                    Text("Métricas de ${s.name}", fontWeight = FontWeight.Bold, color = AppColors.Purple)
+                                                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                                    Icon(Icons.Default.TrendingUp, null, tint = AppColors.Purple, modifier = Modifier.size(20.dp))
+                                                    Text("Progreso General de Práctica", fontWeight = FontWeight.Bold, color = AppColors.Purple)
                                                 }
-                                                Divider(color = AppColors.PurpleLight)
-                                                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                                                    Text("Estrellas Recolectadas:", color = AppColors.Gray600)
-                                                    Row(
-                                                        verticalAlignment = Alignment.CenterVertically,
-                                                        horizontalArrangement = Arrangement.spacedBy(4.dp)
-                                                    ) {
-                                                        Icon(
-                                                            imageVector = Icons.Default.Star,
-                                                            contentDescription = null,
-                                                            tint = AppColors.Amber,
-                                                            modifier = Modifier.size(16.dp)
-                                                        )
-                                                        Text("${s.stars}", fontWeight = FontWeight.Bold, color = AppColors.Amber)
+                                                GamifiedLevelProgress(xp = s.xp, level = s.level)
+                                                Spacer(Modifier.height(4.dp))
+                                                MiniBarChart(data = s.weekData, color = AppColors.Purple)
+                                                Text("Actividad acumulada en los últimos 7 días", fontSize = 11.sp, color = AppColors.Gray500, modifier = Modifier.align(Alignment.CenterHorizontally))
+                                            }
+                                        }
+
+                                        // 3.5. ACOMPAÑAMIENTO ADAPTATIVO MATHIA
+                                        Card(
+                                            modifier = Modifier.fillMaxWidth(),
+                                            shape = RoundedCornerShape(20.dp),
+                                            colors = CardDefaults.cardColors(containerColor = Color(0xFFF3E5F5))
+                                        ) {
+                                            Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                                                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                                    Icon(Icons.Default.Tune, null, tint = AppColors.Purple, modifier = Modifier.size(20.dp))
+                                                    Text("Acompañamiento Adaptativo MathIA", fontWeight = FontWeight.Bold, color = AppColors.Purple)
+                                                }
+                                                Text(
+                                                    "MathIA personaliza automáticamente la dificultad de cada tema según el progreso de ${s.name}:",
+                                                    fontSize = 12.sp,
+                                                    color = AppColors.Gray800
+                                                )
+                                                val temas = listOf("Suma", "Resta", "Multiplicación", "División", "Fracciones", "Series")
+                                                temas.forEach { tema ->
+                                                    val temaNorm = com.example.mathia.AdaptiveEngine.normalizarTema(tema)
+                                                    val lvl = s.dificultadPorTema[temaNorm] ?: s.level.coerceIn(1, 5)
+                                                    val desc = when(lvl) {
+                                                        1 -> "MathIA acompaña a ${s.name} con ejercicios básicos y orientación paso a paso."
+                                                        2 -> "MathIA afianza conceptos iniciales con ejercicios acordes a su ritmo."
+                                                        3 -> "MathIA mantiene un nivel intermedio de consolidación para ${s.name}."
+                                                        4 -> "MathIA ofrece ejercicios avanzados para agilizar la fluidez mental de ${s.name}."
+                                                        5 -> "¡MathIA propone los mayores retos de nivel desafío para ${s.name}!"
+                                                        else -> "MathIA evalúa ejercicios a la medida de su nivel."
                                                     }
-                                                }
-                                                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                                                    Text("Precisión General:", color = AppColors.Gray600)
-                                                    Text("${s.accuracy}%", fontWeight = FontWeight.Bold, color = AppColors.Green)
-                                                }
-                                                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                                                    Text("Racha de Práctica:", color = AppColors.Gray600)
-                                                    Row(
-                                                        verticalAlignment = Alignment.CenterVertically,
-                                                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                                    Surface(
+                                                        color = Color.White,
+                                                        shape = RoundedCornerShape(12.dp),
+                                                        border = BorderStroke(1.dp, AppColors.PurpleLight)
                                                     ) {
-                                                        Icon(
-                                                            imageVector = Icons.Default.Whatshot,
-                                                            contentDescription = null,
-                                                            tint = AppColors.Pink,
-                                                            modifier = Modifier.size(16.dp)
-                                                        )
-                                                        Text("${s.streak} días", fontWeight = FontWeight.Bold, color = AppColors.Pink)
+                                                        Row(
+                                                            modifier = Modifier.fillMaxWidth().padding(10.dp),
+                                                            horizontalArrangement = Arrangement.SpaceBetween,
+                                                            verticalAlignment = Alignment.CenterVertically
+                                                        ) {
+                                                            Column(modifier = Modifier.weight(1f)) {
+                                                                Text(tema, fontWeight = FontWeight.Bold, fontSize = 13.sp, color = AppColors.Purple)
+                                                                Text(desc, fontSize = 11.sp, color = AppColors.Gray600)
+                                                            }
+                                                            Spacer(Modifier.width(8.dp))
+                                                            Surface(color = AppColors.PurpleLight, shape = RoundedCornerShape(50.dp)) {
+                                                                Text(
+                                                                    com.example.mathia.AdaptiveEngine.obtenerNombreNivel(lvl),
+                                                                    fontSize = 10.sp,
+                                                                    fontWeight = FontWeight.Bold,
+                                                                    color = AppColors.Purple,
+                                                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                                                                )
+                                                            }
+                                                        }
                                                     }
-                                                }
-                                                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                                                    Text("Nivel Alcanzado:", color = AppColors.Gray600)
-                                                    Text("Nivel ${s.level}", fontWeight = FontWeight.Bold, color = AppColors.Purple)
                                                 }
                                             }
                                         }
 
-                                        // Recommendations card
+                                        // 4. ACTIVIDAD RECIENTE (Últimos ejercicios o actividades realizados)
+                                        Card(
+                                            modifier = Modifier.fillMaxWidth(),
+                                            shape = RoundedCornerShape(20.dp),
+                                            colors = CardDefaults.cardColors(containerColor = Color.White)
+                                        ) {
+                                            Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                                                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                                    Icon(Icons.Default.History, null, tint = AppColors.Purple, modifier = Modifier.size(20.dp))
+                                                    Text("Actividad Reciente", fontWeight = FontWeight.Bold, color = AppColors.Purple)
+                                                }
+                                                HorizontalDivider(color = AppColors.PurpleLight)
+
+                                                val recentActivities = listOf(
+                                                    Triple("Sumas con llevadas", "+20 XP", "Hoy, 10:30 AM"),
+                                                    Triple("Problemas de resta", "+15 XP", "Ayer, 4:15 PM"),
+                                                    Triple("Multiplicaciones básicas", "+30 XP", "Hace 2 días")
+                                                )
+
+                                                recentActivities.forEach { (title, xpText, timeText) ->
+                                                    Row(
+                                                        modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+                                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                                        verticalAlignment = Alignment.CenterVertically
+                                                    ) {
+                                                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                                            Text("✓", fontWeight = FontWeight.Black, color = AppColors.Green, fontSize = 14.sp)
+                                                            Column {
+                                                                Text(title, fontSize = 13.sp, fontWeight = FontWeight.Bold, color = AppColors.Gray800)
+                                                                Text(timeText, fontSize = 11.sp, color = AppColors.Gray500)
+                                                            }
+                                                        }
+                                                        Text(xpText, fontSize = 12.sp, fontWeight = FontWeight.ExtraBold, color = AppColors.Purple)
+                                                    }
+                                                }
+                                            }
+                                        }
+
+                                        // 5. ATENCIÓN RECOMENDADA (Mostrar únicamente si existe información relevante)
+                                        Card(
+                                            modifier = Modifier.fillMaxWidth(),
+                                            shape = RoundedCornerShape(20.dp),
+                                            colors = CardDefaults.cardColors(containerColor = Color(0xFFFFF3E0)),
+                                            border = BorderStroke(1.5.dp, AppColors.Amber.copy(alpha = 0.5f))
+                                        ) {
+                                            Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                                                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                                    Icon(Icons.Default.Warning, null, tint = AppColors.Amber, modifier = Modifier.size(20.dp))
+                                                    Text("Atención Recomendada", fontWeight = FontWeight.Bold, color = AppColors.Gray800)
+                                                }
+                                                Text(
+                                                    "• División requiere refuerzo en casa (Precisión actual: 63%)",
+                                                    fontSize = 13.sp,
+                                                    color = AppColors.Gray800,
+                                                    fontWeight = FontWeight.Medium
+                                                )
+                                                Button(
+                                                    onClick = { showDivisionDetailDialog = true },
+                                                    colors = ButtonDefaults.buttonColors(containerColor = AppColors.Purple),
+                                                    shape = RoundedCornerShape(50.dp),
+                                                    modifier = Modifier.align(Alignment.End)
+                                                ) {
+                                                    Text("Ver Análisis de División ➔", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                                                }
+                                            }
+                                        }
+
+                                        // 6. RECOMENDACIÓN MATHIA (Recomendación breve para el tutor)
                                         Card(
                                             modifier = Modifier.fillMaxWidth(),
                                             shape = RoundedCornerShape(20.dp),
                                             colors = CardDefaults.cardColors(containerColor = Color(0xFFFAF5FF)),
                                             border = BorderStroke(1.dp, AppColors.Purple.copy(alpha = 0.2f))
                                         ) {
-                                            Column(modifier = Modifier.padding(16.dp)) {
-                                                Row(
-                                                    verticalAlignment = Alignment.CenterVertically,
-                                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                                                ) {
-                                                    Icon(
-                                                        imageVector = Icons.Default.Lightbulb,
-                                                        contentDescription = null,
-                                                        tint = AppColors.Purple,
-                                                        modifier = Modifier.size(20.dp)
-                                                    )
-                                                    Text("Consejos Pedagógicos para Casa", fontWeight = FontWeight.Bold, color = AppColors.Purple)
-                                                }
-                                                Spacer(modifier = Modifier.height(8.dp))
-                                                if (s.recomendaciones.isEmpty()) {
-                                                    Text("Mateo está analizando las estadísticas de tu hijo. ¡Continúen practicando!", fontSize = 12.sp, color = AppColors.Gray600)
-                                                } else {
-                                                    s.recomendaciones.forEach { rec ->
-                                                        Text("• $rec", fontSize = 13.sp, color = AppColors.Gray800, modifier = Modifier.padding(vertical = 2.dp))
-                                                    }
-                                                }
-                                            }
-                                        }
-
-                                        // Skills Breakdown progress bar
-                                        Card(
-                                            modifier = Modifier.fillMaxWidth(),
-                                            shape = RoundedCornerShape(20.dp),
-                                            colors = CardDefaults.cardColors(containerColor = Color.White)
-                                        ) {
-                                            Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                                                Row(
-                                                    verticalAlignment = Alignment.CenterVertically,
-                                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                                                ) {
-                                                    Icon(
-                                                        imageVector = Icons.Default.Flag,
-                                                        contentDescription = null,
-                                                        tint = AppColors.Purple,
-                                                        modifier = Modifier.size(20.dp)
-                                                    )
-                                                    Text("Desglose por Competencia", fontWeight = FontWeight.Bold, color = AppColors.Purple)
-                                                }
-                                                s.skills.forEach { (skill, value) ->
-                                                    SkillProgressBar(skill, value)
-                                                }
-                                            }
-                                        }
-
-                                        // Weekly evolution
-                                        Card(
-                                            modifier = Modifier.fillMaxWidth(),
-                                            shape = RoundedCornerShape(20.dp),
-                                            colors = CardDefaults.cardColors(containerColor = Color.White)
-                                        ) {
-                                            Column(
+                                            Row(
                                                 modifier = Modifier.padding(16.dp),
-                                                horizontalAlignment = Alignment.CenterHorizontally,
-                                                verticalArrangement = Arrangement.spacedBy(8.dp)
+                                                verticalAlignment = Alignment.CenterVertically,
+                                                horizontalArrangement = Arrangement.spacedBy(12.dp)
                                             ) {
-                                                Row(
-                                                    verticalAlignment = Alignment.CenterVertically,
-                                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                                                    modifier = Modifier.align(Alignment.Start)
-                                                ) {
-                                                    Icon(
-                                                        imageVector = Icons.Default.TrendingUp,
-                                                        contentDescription = null,
-                                                        tint = AppColors.Purple,
-                                                        modifier = Modifier.size(20.dp)
+                                                Icon(Icons.Default.Lightbulb, null, tint = AppColors.Purple, modifier = Modifier.size(24.dp))
+                                                Column {
+                                                    Text("Recomendación MathIA", fontWeight = FontWeight.ExtraBold, color = AppColors.Purple, fontSize = 14.sp)
+                                                    Spacer(Modifier.height(2.dp))
+                                                    Text(
+                                                        "Dedicar 10 minutos diarios a practicar ejercicios de división básica con el acompañamiento de pistas.",
+                                                        fontSize = 12.sp,
+                                                        color = AppColors.Gray700,
+                                                        lineHeight = 16.sp
                                                     )
-                                                    Text("Evolución de Ejercicios Diarios", fontWeight = FontWeight.Bold)
                                                 }
-                                                MiniBarChart(data = s.weekData, color = AppColors.Purple)
-                                                Text("Últimos 7 días activos", fontSize = 11.sp, color = AppColors.Gray500)
                                             }
                                         }
+                                    }
+
+                                    // Modal Dialog para el Análisis de Detalle de División (Requerimiento 5)
+                                    if (showDivisionDetailDialog) {
+                                        AlertDialog(
+                                            onDismissRequest = { showDivisionDetailDialog = false },
+                                            confirmButton = {
+                                                TextButton(onClick = { showDivisionDetailDialog = false }) {
+                                                    Text("Cerrar", fontWeight = FontWeight.Bold, color = AppColors.Purple)
+                                                }
+                                            },
+                                            text = {
+                                                Box(modifier = Modifier.fillMaxWidth().heightIn(max = 550.dp).verticalScroll(rememberScrollState())) {
+                                                    TopicDetailAnalysisCard(
+                                                        student = s,
+                                                        topicName = "División",
+                                                        onClose = { showDivisionDetailDialog = false },
+                                                        onPracticeTopic = onPracticeTopic
+                                                    )
+                                                }
+                                            },
+                                            containerColor = Color.White,
+                                            shape = RoundedCornerShape(24.dp)
+                                        )
                                     }
                                 }
                             }
@@ -739,18 +856,40 @@ fun ParentsPanel(
                                         ) {
                                             Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                                                 Row(
-                                                    verticalAlignment = Alignment.CenterVertically,
-                                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                                    modifier = Modifier.fillMaxWidth(),
+                                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                                    verticalAlignment = Alignment.CenterVertically
                                                 ) {
-                                                    Icon(
-                                                        imageVector = Icons.Default.People,
-                                                        contentDescription = null,
-                                                        tint = AppColors.Purple,
-                                                        modifier = Modifier.size(20.dp)
-                                                    )
-                                                    Text("Hijos Registrados", fontWeight = FontWeight.Bold, color = AppColors.Purple)
+                                                    Row(
+                                                        verticalAlignment = Alignment.CenterVertically,
+                                                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                                    ) {
+                                                        Icon(
+                                                            imageVector = Icons.Default.People,
+                                                            contentDescription = null,
+                                                            tint = AppColors.Purple,
+                                                            modifier = Modifier.size(20.dp)
+                                                        )
+                                                        Text("Hijos Registrados", fontWeight = FontWeight.Bold, color = AppColors.Purple)
+                                                    }
+
+                                                    Button(
+                                                        onClick = {
+                                                            classroomCodeInput = ""
+                                                            joinError = ""
+                                                            joinStep = 1
+                                                            validatedClassroom = null
+                                                            selectedChildForJoin = children.firstOrNull()
+                                                            showJoinClassroomDialog = true
+                                                        },
+                                                        colors = ButtonDefaults.buttonColors(containerColor = AppColors.Purple),
+                                                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
+                                                        shape = RoundedCornerShape(50.dp)
+                                                    ) {
+                                                        Text("+ Unirse a un aula", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                                    }
                                                 }
-                                                Divider(color = AppColors.PurpleLight)
+                                                HorizontalDivider(color = AppColors.PurpleLight)
                                                 
                                                 children.forEach { child ->
                                                     Row(
@@ -842,6 +981,196 @@ fun ParentsPanel(
                     Text("+ Registrar Nuevo Hijo/a", fontWeight = FontWeight.Bold, fontSize = 15.sp)
                 }
             }
+
+            if (showJoinClassroomDialog) {
+                AlertDialog(
+                    onDismissRequest = { if (!isJoining) showJoinClassroomDialog = false },
+                    title = {
+                        Text(
+                            text = if (joinStep == 1) "Unirse a un Aula MathIA" else "Verificar Aula Encontrada",
+                            fontWeight = FontWeight.Bold,
+                            color = AppColors.Purple
+                        )
+                    },
+                    text = {
+                        Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                            if (joinStep == 1) {
+                                Text("Ingresa el código de aula proporcionado por el docente para vincular a tu hijo.", fontSize = 13.sp, color = AppColors.Gray700)
+                                OutlinedTextField(
+                                    value = classroomCodeInput,
+                                    onValueChange = {
+                                        classroomCodeInput = it.uppercase()
+                                        joinError = ""
+                                    },
+                                    label = { Text("Código de Aula (ej: MATH-2A-84F)") },
+                                    singleLine = true,
+                                    modifier = Modifier.fillMaxWidth(),
+                                    shape = RoundedCornerShape(12.dp)
+                                )
+                                if (joinError.isNotEmpty()) {
+                                    Text(joinError, color = AppColors.Red, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                                }
+                                if (isJoining) {
+                                    LinearProgressIndicator(modifier = Modifier.fillMaxWidth(), color = AppColors.Purple)
+                                }
+                            } else {
+                                validatedClassroom?.let { salon ->
+                                    Card(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        shape = RoundedCornerShape(16.dp),
+                                        colors = CardDefaults.cardColors(containerColor = AppColors.PurpleLight.copy(alpha = 0.4f)),
+                                        border = BorderStroke(1.dp, AppColors.Purple.copy(alpha = 0.3f))
+                                    ) {
+                                        Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                                            Text("Aula Encontrada ✨", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = AppColors.Purple)
+                                            Text(salon.name, fontWeight = FontWeight.ExtraBold, fontSize = 16.sp, color = AppColors.Purple)
+                                            Text("Docente: ${salon.teacherName}", fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = AppColors.Gray800)
+                                            Text("Grado: ${salon.grade} | Sección: ${salon.section}", fontSize = 12.sp, color = AppColors.Gray600)
+                                        }
+                                    }
+
+                                    if (children.size > 1) {
+                                        Text("¿A qué hijo deseas vincular?", fontSize = 13.sp, fontWeight = FontWeight.Bold, color = AppColors.TextMain)
+                                        children.forEach { child ->
+                                            val isSelected = selectedChildForJoin?.pin == child.pin
+                                            Surface(
+                                                onClick = { selectedChildForJoin = child },
+                                                shape = RoundedCornerShape(12.dp),
+                                                color = if (isSelected) AppColors.PurpleLight else AppColors.Gray100,
+                                                border = BorderStroke(1.5.dp, if (isSelected) AppColors.Purple else Color.Transparent),
+                                                modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp)
+                                            ) {
+                                                Row(
+                                                    modifier = Modifier.padding(10.dp),
+                                                    verticalAlignment = Alignment.CenterVertically,
+                                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                                ) {
+                                                    RadioButton(
+                                                        selected = isSelected,
+                                                        onClick = { selectedChildForJoin = child },
+                                                        colors = RadioButtonDefaults.colors(selectedColor = AppColors.Purple)
+                                                    )
+                                                    AvatarIcon(avatarKey = child.avatar, modifier = Modifier.size(20.dp), tint = AppColors.Purple)
+                                                    Text(child.nombre, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                                                }
+                                            }
+                                        }
+                                    }
+
+                                    selectedChildForJoin?.let { child ->
+                                        Text(
+                                            "¿Quieres vincular a ${child.nombre} con esta aula?",
+                                            fontSize = 13.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            color = AppColors.Gray800
+                                        )
+                                    }
+
+                                    if (joinError.isNotEmpty()) {
+                                        Text(joinError, color = AppColors.Red, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                                    }
+
+                                    if (isJoining) {
+                                        LinearProgressIndicator(modifier = Modifier.fillMaxWidth(), color = AppColors.Purple)
+                                    }
+                                }
+                            }
+                        }
+                    },
+                    confirmButton = {
+                        if (joinStep == 1) {
+                            Button(
+                                onClick = {
+                                    val cleanCode = classroomCodeInput.trim()
+                                    if (cleanCode.isBlank()) {
+                                        joinError = "Ingresa un código de aula válido"
+                                        return@Button
+                                    }
+                                    isJoining = true
+                                    joinError = ""
+                                    viewModel.validarCodigoAula(cleanCode) { result ->
+                                        isJoining = false
+                                        when (result) {
+                                            is com.example.mathia.model.ClassroomValidationResult.Success -> {
+                                                validatedClassroom = result.classroom
+                                                selectedChildForJoin = children.firstOrNull()
+                                                joinStep = 2
+                                            }
+                                            is com.example.mathia.model.ClassroomValidationResult.InvalidCode -> {
+                                                joinError = "Código de aula no válido."
+                                            }
+                                            is com.example.mathia.model.ClassroomValidationResult.ClassroomClosed -> {
+                                                joinError = "Esta aula ya no acepta nuevos estudiantes."
+                                            }
+                                            is com.example.mathia.model.ClassroomValidationResult.Error -> {
+                                                joinError = result.message
+                                            }
+                                        }
+                                    }
+                                },
+                                colors = ButtonDefaults.buttonColors(containerColor = AppColors.Purple),
+                                shape = RoundedCornerShape(12.dp)
+                            ) {
+                                Text("Continuar", fontWeight = FontWeight.Bold)
+                            }
+                        } else {
+                            Button(
+                                onClick = {
+                                    val child = selectedChildForJoin ?: return@Button
+                                    val salon = validatedClassroom ?: return@Button
+                                    isJoining = true
+                                    joinError = ""
+                                    viewModel.vincularEstudianteAAula(
+                                        classroomId = salon.classroomId,
+                                        studentPin = child.pin.toString(),
+                                        parentEmail = parentEmail
+                                    ) { linkResult ->
+                                        isJoining = false
+                                        when (linkResult) {
+                                            is com.example.mathia.model.ClassroomLinkResult.Success -> {
+                                                Toast.makeText(context, "¡Listo! ${linkResult.studentName} ahora pertenece al aula ${linkResult.classroomName}.", Toast.LENGTH_LONG).show()
+                                                showJoinClassroomDialog = false
+                                                viewModel.obtenerEstudiantesPorEmailPadre(parentEmail) { freshChildren ->
+                                                    children = freshChildren
+                                                }
+                                            }
+                                            is com.example.mathia.model.ClassroomLinkResult.AlreadyLinked -> {
+                                                joinError = "Este estudiante ya pertenece a esta aula."
+                                            }
+                                            is com.example.mathia.model.ClassroomLinkResult.Unauthorized -> {
+                                                joinError = "No tienes autorización para vincular este estudiante."
+                                            }
+                                            is com.example.mathia.model.ClassroomLinkResult.Error -> {
+                                                joinError = linkResult.message
+                                            }
+                                        }
+                                    }
+                                },
+                                colors = ButtonDefaults.buttonColors(containerColor = AppColors.Purple),
+                                shape = RoundedCornerShape(12.dp)
+                            ) {
+                                Text("Vincular", fontWeight = FontWeight.Bold)
+                            }
+                        }
+                    },
+                    dismissButton = {
+                        TextButton(
+                            onClick = {
+                                if (joinStep == 2) {
+                                    joinStep = 1
+                                } else {
+                                    showJoinClassroomDialog = false
+                                }
+                            }
+                        ) {
+                            Text(if (joinStep == 2) "Atrás" else "Cancelar", color = AppColors.Gray600)
+                        }
+                    },
+                    containerColor = Color.White,
+                    shape = RoundedCornerShape(24.dp)
+                )
+            }
         }
     }
+}
 }

@@ -42,7 +42,12 @@ import kotlinx.coroutines.tasks.await
 import androidx.compose.runtime.collectAsState
 
 
+import dagger.hilt.android.AndroidEntryPoint
+import androidx.hilt.navigation.compose.hiltViewModel
+import com.example.mathia.data.mapper.ModelMappers.toDomain
+
 // ─── MainActivity ──────────────────────────────────────────────────────────
+@AndroidEntryPoint
 class MainActivity : ComponentActivity() {
 
     private val themeViewModel: ThemeViewModel by viewModels()
@@ -83,30 +88,21 @@ fun MainApp(themeViewModel: ThemeViewModel) {
     val context = LocalContext.current
     val sharedPref = remember { context.getSharedPreferences("mathia_prefs", Context.MODE_PRIVATE) }
 
-    // ── NUEVO: Estado del tema ─────────────────────────────────────────
-    var isDarkMode by remember {
-        mutableStateOf(sharedPref.getBoolean("dark_mode", false))
-    }
-
-    // Función para cambiar y guardar el tema
-    fun toggleDarkMode() {
-        isDarkMode = !isDarkMode
-        sharedPref.edit().putBoolean("dark_mode", isDarkMode).apply()
-    }
-
     var screen by remember { mutableStateOf("splash") } // "splash", "welcome", etc.
+
 
     // Ensure demo mode is OFF by default — real Firestore data
     LaunchedEffect(Unit) {
         StudentViewModel.isDemoMode = false
     }
+
     var loginRole by remember { mutableStateOf("") }
     var student by remember { mutableStateOf<Student?>(null) }
     var gameOp by remember { mutableStateOf("Suma") }
     var parentEmail by remember { mutableStateOf("") }
     var loggedInUid by remember { mutableStateOf("") }
     var activeAlert by remember { mutableStateOf<MathiaAlert?>(null) }
-    val viewModel = remember { StudentViewModel() }
+    val viewModel: StudentViewModel = hiltViewModel()
 
     val scope = rememberCoroutineScope()
 
@@ -116,58 +112,19 @@ fun MainApp(themeViewModel: ThemeViewModel) {
         val currentUser = FirebaseAuth.getInstance().currentUser
 
         if (savedPin != null) {
+            // Save FCM token for student
+            FirebaseMessaging.getInstance().token.addOnSuccessListener { token ->
+                if (token.isNotEmpty()) {
+                    viewModel.guardarFcmToken(savedPin, token)
+                }
+            }
+
+            val targetScreen = (context as? ComponentActivity)?.intent?.getStringExtra("screen")
             // Auto-login student
             viewModel.login(savedPin) { alumno ->
                 if (alumno != null) {
-                    val parts = alumno.nombre.split(" ")
-                    val firstName = parts.firstOrNull() ?: alumno.nombre
-                    val lastName = parts.drop(1).joinToString(" ")
-                    student = Student(
-                        id = alumno.pin,
-                        name = firstName,
-                        lastName = lastName,
-                        grade = alumno.grado,
-                        classroom = alumno.grado,
-                        pin = alumno.pin.toString(),
-                        level = alumno.nivel_actual,
-                        stars = alumno.estrellas,
-                        xp = alumno.xp,
-                        totalQuestions = alumno.total_preguntas,
-                        correctAnswers = alumno.correctas,
-                        examsCompleted = alumno.total_preguntas / 10 + 1,
-                        accuracy = alumno.precision.toInt(),
-                        streak = alumno.streak,
-                        weekData = alumno.weekData,
-                        monthData = alumno.monthData,
-                        skills = alumno.skills.ifEmpty {
-                            mapOf(
-                                "Sumas" to alumno.precision.toInt(),
-                                "Restas" to alumno.precision.toInt(),
-                                "Multiplicación" to alumno.precision.toInt(),
-                                "Fracciones" to alumno.precision.toInt(),
-                                "Series" to alumno.precision.toInt()
-                            )
-                        },
-                        incorrectasPorTema = alumno.incorrectas_por_tema,
-                        asistencia = alumno.asistencia,
-                        recomendaciones = alumno.recomendaciones,
-                        avatar = alumno.avatar,
-                        equippedTheme = alumno.equipped_theme,
-                        unlockedAvatars = alumno.unlocked_avatars,
-                        unlockedThemes = alumno.unlocked_themes,
-                        diagnosticoRealizado = alumno.diagnostico_realizado,
-                        tiempoTotal = alumno.tiempo_total,
-                        tiempoPromedio = alumno.tiempo_promedio,
-                        dailyMissionProgress = alumno.daily_mission_progress,
-                        weeklyMissionProgress = alumno.weekly_mission_progress,
-                        edad = alumno.edad,
-                        colegio = alumno.colegio,
-                        seccion = alumno.seccion,
-                        docenteAsignado = alumno.docente_asignado,
-                        fechaCreacion = alumno.fecha_creacion,
-                        padreEmail = alumno.padre_email
-                    )
-                    screen = "menu"
+                    student = alumno.toDomain()
+                    screen = if (targetScreen == "duelos") "duelos" else "menu"
                 } else {
                     // PIN no longer valid or student deleted
                     sharedPref.edit().remove("student_pin").apply()
@@ -283,7 +240,10 @@ fun MainApp(themeViewModel: ThemeViewModel) {
             ) { currentScreen ->
             when (currentScreen) {
                 "splash" -> LoadingScreen()
-                "welcome" -> WelcomeScreen(onCreateProfile = { screen = "create" }, onLogin = { screen = "select_login" })
+                "welcome" -> WelcomeScreen(
+                    onCreateProfile = { screen = "create" },
+                    onLogin = { screen = "select_login" }
+                )
                 "select_login" -> SelectLoginTypeScreen(
                     onStudent = { loginRole = "student"; screen = "login" },
                     onTeacher = { loginRole = "docente"; screen = "adult_auth" },
@@ -391,6 +351,7 @@ fun MainApp(themeViewModel: ThemeViewModel) {
                         onRewards = { screen = "rewards" },
                         onExam = { screen = "exam" },
                         onLeaderboard = { screen = "leaderboard" },
+                        onDuels = { screen = "duelos" },
                         onLogout = { logout() },
                         onUpdateStudent = { s -> student = s },
                         onShowAlert = { alert -> activeAlert = alert },
@@ -468,6 +429,8 @@ fun MainApp(themeViewModel: ThemeViewModel) {
                 )
                 "parents_panel" -> ParentsPanel(onBack = { logout() }, onCreateStudentProfile = { screen = "create" }, parentEmail = parentEmail, viewModel = viewModel)
                 "diagnostico" -> student?.let { DiagnosticoScreen(it, viewModel, onFinish = { screen = "menu" }) }
+                "calendario" -> CalendarScreen(studentName = student?.name ?: "", studentAsistencia = student?.asistencia ?: emptyList(), onBack = { screen = "menu" })
+                "duelos" -> student?.let { s -> DuelsScreen(currentStudent = s, onBack = { screen = "menu" }, viewModel = viewModel) }
             }
 
             } // end AnimatedContent
@@ -486,58 +449,48 @@ fun MainApp(themeViewModel: ThemeViewModel) {
 // ─── Loading / Splash Screen ───────────────────────────────────────────────
 @Composable
 fun LoadingScreen() {
-    val context = LocalContext.current
-    val imageLoader = remember(context) {
-        ImageLoader.Builder(context).components {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) add(ImageDecoderDecoder.Factory())
-            else add(GifDecoder.Factory())
-        }.build()
-    }
-
-    val infiniteTransition = rememberInfiniteTransition(label = "mateo_jump")
-    val translationY by infiniteTransition.animateFloat(
-        initialValue = 0f,
-        targetValue = -30f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(600, easing = FastOutSlowInEasing),
-            repeatMode = RepeatMode.Reverse
-        ),
-        label = "jump"
-    )
-
-    Column(
+    Box(
         modifier = Modifier
             .fillMaxSize()
             .background(AppColors.Bg),
-        verticalArrangement = Arrangement.Center,
-        horizontalAlignment = Alignment.CenterHorizontally
+        contentAlignment = Alignment.Center
     ) {
-        Box(
-            modifier = Modifier
-                .size(150.dp)
-                .graphicsLayer { this.translationY = translationY }
-                .clip(CircleShape)
-                .background(AppColors.PurpleLight),
-            contentAlignment = Alignment.Center
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(16.dp),
+            modifier = Modifier.padding(24.dp)
         ) {
-            Image(
-                painter = rememberAsyncImagePainter(
-                    model = R.drawable.ajolote,
-                    imageLoader = imageLoader
-                ),
-                contentDescription = "Cargando MathIA...",
-                modifier = Modifier.size(110.dp)
+            // Centralized running mascot with native Compose bounce/offset animation
+            com.example.mathia.ui.components.MathiaMascot(
+                mascotState = com.example.mathia.ui.components.MascotState.LOADING,
+                size = 140.dp
+            )
+
+            Text(
+                text = "Cargando...",
+                fontSize = 24.sp,
+                fontWeight = FontWeight.ExtraBold,
+                color = AppColors.PrimaryBlue
+            )
+
+            Text(
+                text = "Preparando tu aventura matemática",
+                fontSize = 14.sp,
+                fontWeight = FontWeight.Medium,
+                color = AppColors.TextSecondary
+            )
+
+            Spacer(modifier = Modifier.height(8.dp))
+
+            LinearProgressIndicator(
+                modifier = Modifier
+                    .width(180.dp)
+                    .height(6.dp)
+                    .clip(androidx.compose.foundation.shape.RoundedCornerShape(3.dp)),
+                color = AppColors.PrimaryBlue,
+                trackColor = AppColors.PrimaryBlue.copy(alpha = 0.2f)
             )
         }
-        Spacer(modifier = Modifier.height(24.dp))
-        Text(
-            text = "Cargando MathIA...",
-            fontSize = 20.sp,
-            fontWeight = FontWeight.ExtraBold,
-            color = AppColors.Purple
-        )
-        Spacer(modifier = Modifier.height(16.dp))
-        CircularProgressIndicator(color = AppColors.Purple)
     }
 }
 

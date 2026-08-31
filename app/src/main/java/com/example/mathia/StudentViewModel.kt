@@ -10,140 +10,56 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.tasks.await
 import com.example.mathia.model.*
+import com.mathia.kids.data.model.HintRequest
+import com.mathia.kids.data.model.HintResponse
+import com.mathia.kids.data.model.ProgressSummaryRequest
+import com.mathia.kids.data.model.ProgressSummaryResponse
+import com.mathia.kids.network.MathIaApiService
+import com.mathia.kids.data.fallback.LocalFallbackEngine
 
-class StudentViewModel : ViewModel() {
+import dagger.hilt.android.lifecycle.HiltViewModel
+import javax.inject.Inject
+import com.example.mathia.testing.MockDataStore
 
-    private val repository = FirebaseRepository()
+@HiltViewModel
+class StudentViewModel @Inject constructor(
+    private val repository: FirebaseRepository
+) : ViewModel() {
 
     companion object {
-        var isDemoMode = false
-        val mockUsuarios = mutableMapOf<String, Any>()
-        val mockHistorial = mutableListOf<RespuestaHistorial>()
-        val mockReportes = mutableListOf<ReporteSesion>()
-        val mockObservaciones = mutableListOf<Observacion>()
-        val mockNotificaciones = mutableListOf<NotificacionFirebase>()
+        var isDemoMode: Boolean
+            get() = MockDataStore.isDemoMode
+            set(value) { MockDataStore.isDemoMode = value }
 
-        init {
-            resetMockData()
-        }
+        val mockUsuarios get() = MockDataStore.mockUsuarios
+        val mockHistorial get() = MockDataStore.mockHistorial
+        val mockReportes get() = MockDataStore.mockReportes
+        val mockObservaciones get() = MockDataStore.mockObservaciones
+        val mockNotificaciones get() = MockDataStore.mockNotificaciones
 
         fun resetMockData() {
-            mockUsuarios.clear()
-            mockHistorial.clear()
-            mockReportes.clear()
-            mockObservaciones.clear()
-            mockNotificaciones.clear()
-
-            // 1. Student Sofía Pacheco (pin "1234")
-            mockUsuarios["1234"] = FirebaseStudent(
-                nombre = "Sofía Pacheco",
-                grado = "3ro de Primaria",
-                seccion = "Sección A",
-                edad = 6,
-                colegio = "Maria Auxiliadora",
-                docente_asignado = "Efraín Caceres",
-                fecha_creacion = System.currentTimeMillis() - 10 * 24 * 3600000L,
-                nivel_actual = 1,
-                precision = 85.0,
-                estrellas = 505,
-                xp = 90,
-                pin = 1234,
-                padre_email = "parent@mathia.com",
-                avatar = "default",
-                equipped_theme = "Lila Clásico",
-                unlocked_avatars = listOf("default"),
-                unlocked_themes = listOf("Lila Clásico", "Verde Menta"),
-                streak = 3,
-                daily_mission_progress = 3,
-                weekly_mission_progress = 12,
-                skills = mapOf(
-                    "Sumas" to 90,
-                    "Restas" to 80,
-                    "Multiplicación" to 75,
-                    "Fracciones" to 60,
-                    "Series" to 85
-                ),
-                incorrectas_por_tema = mapOf("Fracciones" to 5, "Multiplicación" to 3),
-                asistencia = listOf("2026-06-12", "2026-06-13", "2026-06-14", "2026-06-15"),
-                recomendaciones = listOf(
-                    "¡Increíble precisión del 85%!",
-                    "Te sugiero practicar un poco más de Fracciones para dominarlo por completo.",
-                    "¡Llevas una súper racha de 3 días practicando!"
-                )
-            )
-
-            // 2. Parent Melisa Gutierrez (uid "parent_uid")
-            mockUsuarios["parent_uid"] = AdultoFirebase(
-                uid = "parent_uid",
-                email = "parent@mathia.com",
-                password = "123456",
-                rol = "padre",
-                nombre = "Melisa Gutierrez",
-                perfil_completo = true,
-                estudiante_pin = 1234
-            )
-
-            // 3. Teacher Efraín Caceres (uid "teacher_uid")
-            mockUsuarios["teacher_uid"] = AdultoFirebase(
-                uid = "teacher_uid",
-                email = "teacher@mathia.com",
-                password = "123456",
-                rol = "docente",
-                nombre = "Efraín Caceres",
-                colegio = "Maria Auxiliadora",
-                grado = "3ro de Primaria",
-                seccion = "Sección A",
-                perfil_completo = true
-            )
-
-            // Pre-populate mock observations
-            mockObservaciones.add(
-                Observacion(
-                    id = "obs1",
-                    docenteId = "teacher_uid",
-                    docenteNombre = "Efraín Caceres",
-                    texto = "Sofía muestra gran entusiasmo en las sumas y series. Excelente participación en clase.",
-                    fecha = "2026-06-14",
-                    timestamp = System.currentTimeMillis() - 24 * 3600000L
-                )
-            )
-
-            // Pre-populate mock session reports
-            mockReportes.add(
-                ReporteSesion(
-                    id = "rep1",
-                    estudianteId = "1234",
-                    estudianteNombre = "Sofía Pacheco",
-                    grado = "3ro de Primaria",
-                    seccion = "Sección A",
-                    docenteId = "teacher_uid",
-                    padreEmail = "parent@mathia.com",
-                    tipo = "Práctica",
-                    preguntasCount = 10,
-                    correctas = 9,
-                    incorrectas = 1,
-                    tiempoPromedio = 8.5,
-                    nivel = 1,
-                    competenciasDominadas = listOf("Sumas", "Series"),
-                    competenciasReforzar = listOf("Fracciones"),
-                    recomendaciones = listOf("Sigue repasando fracciones."),
-                    estrellasObtenidas = 95,
-                    fecha = "2026-06-15",
-                    timestamp = System.currentTimeMillis()
-                )
-            )
-
-            // Pre-populate mock notifications
-            mockNotificaciones.add(
-                NotificacionFirebase(
-                    id = "not1",
-                    titulo = "Sofía completó una práctica",
-                    cuerpo = "Sofía Pacheco resolvió 10 preguntas con un 90% de precisión.",
-                    timestamp = System.currentTimeMillis(),
-                    read = false
-                )
-            )
+            MockDataStore.resetMockData()
         }
+    }
+
+    fun restablecerEstadoLocal(context: android.content.Context, onComplete: () -> Unit) {
+        try {
+            com.google.firebase.auth.FirebaseAuth.getInstance().signOut()
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+
+        val sharedPref = context.getSharedPreferences("mathia_prefs", android.content.Context.MODE_PRIVATE)
+        sharedPref.edit().clear().apply()
+
+        resetMockData()
+        _alumnoActual.value = null
+        _historialRespuestas.value = emptyList()
+        _observaciones.value = emptyList()
+        _reportesSesiones.value = emptyList()
+        _notificaciones.value = emptyList()
+
+        onComplete()
     }
 
     private val _alumnoActual = MutableStateFlow<FirebaseStudent?>(null)
@@ -160,6 +76,182 @@ class StudentViewModel : ViewModel() {
 
     private val _notificaciones = MutableStateFlow<List<NotificacionFirebase>>(emptyList())
     val notificaciones: StateFlow<List<NotificacionFirebase>> = _notificaciones
+
+    private val _duelos = MutableStateFlow<List<com.example.mathia.model.DuelMatch>>(emptyList())
+    val duelos: StateFlow<List<com.example.mathia.model.DuelMatch>> = _duelos
+
+    private var duelsListener: com.google.firebase.firestore.ListenerRegistration? = null
+
+    fun iniciarEscuchaDuelos(studentPin: String) {
+        duelsListener?.remove()
+        duelsListener = repository.escucharDuelosEstudiante(studentPin) { list ->
+            _duelos.value = list
+        }
+    }
+
+    fun buscarEstudiantePorApodo(apodo: String, onResult: (FirebaseStudent?) -> Unit) {
+        viewModelScope.launch {
+            val student = repository.buscarEstudiantePorApodo(apodo)
+            onResult(student)
+        }
+    }
+
+    fun guardarFcmToken(studentPin: String, token: String) {
+        viewModelScope.launch {
+            repository.guardarFcmToken(studentPin, token)
+        }
+    }
+
+    fun crearDesafioDuelo(
+        challenged: FirebaseStudent,
+        topic: String,
+        onResult: (Boolean, String) -> Unit
+    ) {
+        val current = _alumnoActual.value ?: return onResult(false, "No hay alumno activo.")
+        viewModelScope.launch {
+            val res = repository.crearDesafioDuelo(current, challenged, topic)
+            onResult(res.first, res.second)
+        }
+    }
+
+    fun aceptarDesafioDuelo(duelId: String, onResult: (Boolean) -> Unit) {
+        viewModelScope.launch {
+            val ok = repository.aceptarDesafioDuelo(duelId)
+            onResult(ok)
+        }
+    }
+
+    fun rechazarDesafioDuelo(duelId: String, onResult: (Boolean) -> Unit) {
+        viewModelScope.launch {
+            val ok = repository.rechazarDesafioDuelo(duelId)
+            onResult(ok)
+        }
+    }
+
+    fun cancelarDesafioDuelo(duelId: String, onResult: (Boolean) -> Unit) {
+        viewModelScope.launch {
+            val ok = repository.cancelarDesafioDuelo(duelId)
+            onResult(ok)
+        }
+    }
+
+    fun registrarRespuestaDuelo(
+        duelId: String,
+        questionId: String,
+        selectedAnswer: String,
+        correct: Boolean,
+        timeSpent: Long
+    ) {
+        val pin = _alumnoActual.value?.pin?.toString() ?: return
+        viewModelScope.launch {
+            repository.registrarRespuestaDuelo(duelId, pin, questionId, selectedAnswer, correct, timeSpent)
+        }
+    }
+
+    fun guardarProgresoYFinalizarDuelo(
+        duelId: String,
+        score: Int,
+        totalTime: Long,
+        onResult: (Boolean) -> Unit
+    ) {
+        val pin = _alumnoActual.value?.pin?.toString() ?: return onResult(false)
+        viewModelScope.launch {
+            val ok = repository.guardarProgresoYFinalizarDuelo(duelId, pin, score, totalTime)
+            if (ok) {
+                // Refresh student XP and stars
+                val updated = repository.obtenerAlumnoPorPin(pin)
+                if (updated != null) {
+                    _alumnoActual.value = updated
+                }
+            }
+            onResult(ok)
+        }
+    }
+
+    override fun onCleared() {
+        super.onCleared()
+        duelsListener?.remove()
+    }
+
+    // ============ CLASSROOM MANAGEMENT ============
+
+    fun crearAula(
+        teacherId: String,
+        teacherName: String,
+        name: String,
+        grade: String,
+        section: String,
+        school: String,
+        onResult: (Classroom?) -> Unit
+    ) {
+        viewModelScope.launch {
+            val classroom = repository.crearSalom(teacherId, teacherName, name, grade, section, school)
+            onResult(classroom)
+        }
+    }
+
+    fun obtenerSalonesProfesor(teacherId: String, onResult: (List<Classroom>) -> Unit) {
+        viewModelScope.launch {
+            val salones = repository.obtenerSalonesProfesor(teacherId)
+            onResult(salones)
+        }
+    }
+
+    fun validarCodigoAula(joinCode: String, onResult: (ClassroomValidationResult) -> Unit) {
+        viewModelScope.launch {
+            val result = repository.validarCodigoAula(joinCode)
+            onResult(result)
+        }
+    }
+
+    fun vincularEstudianteAAula(
+        classroomId: String,
+        studentPin: String,
+        parentEmail: String,
+        onResult: (ClassroomLinkResult) -> Unit
+    ) {
+        viewModelScope.launch {
+            val result = repository.vincularEstudianteAAula(classroomId, studentPin, parentEmail)
+            onResult(result)
+        }
+    }
+
+    fun cambiarEstadoAula(classroomId: String, isActive: Boolean, onResult: (Boolean) -> Unit) {
+        viewModelScope.launch {
+            val success = repository.cambiarEstadoAula(classroomId, isActive)
+            onResult(success)
+        }
+    }
+
+    fun obtenerEstudiantesDeAula(classroomId: String, onResult: (List<FirebaseStudent>) -> Unit) {
+        viewModelScope.launch {
+            val estudiantes = repository.obtenerEstudiantesDeAula(classroomId)
+            onResult(estudiantes)
+        }
+    }
+
+    fun actualizarDificultadTema(studentPin: String, tema: String, nuevoNivel: Int, onResult: (Boolean) -> Unit = {}) {
+        viewModelScope.launch {
+            val success = repository.actualizarDificultadTema(studentPin, tema, nuevoNivel)
+            if (success && _alumnoActual.value?.pin.toString() == studentPin) {
+                val temaNorm = com.example.mathia.AdaptiveEngine.normalizarTema(tema)
+                val mapActual = _alumnoActual.value?.dificultad_por_tema?.toMutableMap() ?: mutableMapOf()
+                mapActual[temaNorm] = nuevoNivel
+                _alumnoActual.value = _alumnoActual.value?.copy(dificultad_por_tema = mapActual)
+            }
+            onResult(success)
+        }
+    }
+
+    fun validarYGuardarApodo(studentPin: String, apodo: String, onResult: (Boolean, String) -> Unit) {
+        viewModelScope.launch {
+            val (success, message) = repository.validarYGuardarApodo(studentPin, apodo)
+            if (success && _alumnoActual.value?.pin.toString() == studentPin) {
+                _alumnoActual.value = _alumnoActual.value?.copy(apodo = apodo.trim())
+            }
+            onResult(success, message)
+        }
+    }
 
     // ============ STUDENT AUTHENTICATION ============
 
@@ -352,6 +444,38 @@ class StudentViewModel : ViewModel() {
                 _alumnoActual.value = updated
                 regenerarRecomendaciones(pin, updated)
             }
+        }
+    }
+
+    fun calculateDisplayStreak(studentStreak: Int, asistencia: List<String>): Int {
+        return com.example.mathia.model.StreakCalculator.getActiveStreak(asistencia)
+    }
+
+    fun addStars(amount: Int) {
+        val currentPin = _alumnoActual.value?.pin?.toString() ?: return
+        viewModelScope.launch {
+            repository.actualizarEstrellasYXP(currentPin, amount, 0)
+            val updated = repository.obtenerAlumnoPorPin(currentPin)
+            if (updated != null) {
+                _alumnoActual.value = updated
+            }
+        }
+    }
+
+    fun actualizarApodo(nuevoApodo: String, onResult: (Boolean) -> Unit) {
+        val currentPin = _alumnoActual.value?.pin?.toString() ?: run {
+            onResult(false)
+            return
+        }
+        validarYGuardarApodo(currentPin, nuevoApodo) { success, _ ->
+            onResult(success)
+        }
+    }
+
+    fun obtenerCompetenciaSemanal(onResult: (com.example.mathia.model.WeeklyCompetition) -> Unit) {
+        viewModelScope.launch {
+            val comp = repository.obtenerCompetenciaSemanalActual()
+            onResult(comp)
         }
     }
 
@@ -851,4 +975,36 @@ class StudentViewModel : ViewModel() {
             onResult(success)
         }
     }
-}
+
+    // --- MATHIA AI API INTEGRATION ---
+    private val mathIaApiService by lazy { MathIaApiService.create() }
+
+    fun shouldRequestHint(intentos: Int, incorrectasConsecutivas: Int): Boolean {
+        return incorrectasConsecutivas >= 2 || (intentos >= 3 && incorrectasConsecutivas >= 1)
+    }
+
+    fun obtenerPistaAdaptativa(request: HintRequest, onResult: (HintResponse) -> Unit) {
+        viewModelScope.launch {
+            try {
+                val response = mathIaApiService.getAdaptiveHint(request)
+                onResult(response)
+            } catch (e: Exception) {
+                e.printStackTrace()
+                val fallbackResponse = LocalFallbackEngine.generateHint(request)
+                onResult(fallbackResponse)
+            }
+        }
+    }
+
+    fun obtenerResumenProgreso(request: ProgressSummaryRequest, onResult: (ProgressSummaryResponse?) -> Unit) {
+        viewModelScope.launch {
+            try {
+                val response = mathIaApiService.getProgressSummary(request)
+                onResult(response)
+            } catch (e: Exception) {
+                e.printStackTrace()
+                onResult(null)
+            }
+        }
+    }
+}

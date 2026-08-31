@@ -4,6 +4,8 @@ import android.os.Build
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -94,6 +96,7 @@ fun AdaptiveExamScreen(
             modifier = Modifier
                 .fillMaxSize()
                 .background(AppColors.Bg)
+                .verticalScroll(rememberScrollState())
                 .padding(24.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.spacedBy(20.dp)
@@ -132,15 +135,53 @@ fun AdaptiveExamScreen(
                 }
             }
 
-            val options = listOf(q.opcionA, q.opcionB, q.opcionC).filter { it.isNotEmpty() }.shuffled()
+            val options = remember(q) { listOf(q.opcionA, q.opcionB, q.opcionC).filter { it.isNotEmpty() }.shuffled() }
+            
+            val lastResponse = respuestas.lastOrNull()
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(16.dp),
+                colors = CardDefaults.cardColors(containerColor = Color.White.copy(alpha = 0.95f))
+            ) {
+                Row(
+                    modifier = Modifier.padding(12.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    val ajoloteDrawable = if (lastResponse?.correcta == false) {
+                        com.example.mathia.R.drawable.ajolote_incorrecto
+                    } else {
+                        com.example.mathia.R.drawable.ajolote_correcto
+                    }
+                    val feedbackText = if (lastResponse?.correcta == false) {
+                        "Vamos a intentarlo de nuevo. Mira la pista."
+                    } else {
+                        "¡Muy bien! Sigue así."
+                    }
+
+                    androidx.compose.foundation.Image(
+                        painter = androidx.compose.ui.res.painterResource(id = ajoloteDrawable),
+                        contentDescription = "Mateo el Ajolote",
+                        modifier = Modifier.size(54.dp)
+                    )
+                    Text(
+                        text = feedbackText,
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = AppColors.Purple
+                    )
+                }
+            }
+
             Column(modifier = Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 options.forEach { opt ->
                     Button(
                         onClick = {
-                            val correcta = opt == q.correcta
+                            val selectedText = opt.trim()
+                            val correctText = q.correcta.trim()
+                            val correcta = selectedText.equals(correctText, ignoreCase = true)
                             val timeSpent = (System.currentTimeMillis() - questionStartTime) / 1000
                             
-                            // Log exam response to history
                             val fFormat = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault())
                             val hFormat = SimpleDateFormat("HH:mm:ss", Locale.getDefault())
                             val now = Date()
@@ -162,7 +203,7 @@ fun AdaptiveExamScreen(
                                 operacion = "Examen Adaptativo",
                                 pregunta = q.enunciado,
                                 respuestaCorrecta = q.correcta,
-                                respuestaElegida = opt,
+                                respuestaElegida = selectedText,
                                 tiempoRespuesta = timeSpent,
                                 dificultad = when (q.dificultad) { 1 -> "Fácil"; 2 -> "Medio"; else -> "Difícil" },
                                 correcta = correcta,

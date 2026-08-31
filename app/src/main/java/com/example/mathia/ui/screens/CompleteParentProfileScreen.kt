@@ -51,6 +51,7 @@ fun CompleteParentProfileScreen(
     var childGradeSelected by remember { mutableStateOf("Selecciona el Grado del Niño") }
     var childSeccionSelected by remember { mutableStateOf("Selecciona la Sección del Niño") }
     var childPin by remember { mutableStateOf("") }
+    var classroomCodeInput by remember { mutableStateOf("") }
     
     var isLoading by remember { mutableStateOf(false) }
     var isGradeExpanded by remember { mutableStateOf(false) }
@@ -237,6 +238,19 @@ fun CompleteParentProfileScreen(
                             )
                         }
 
+                        // Optional Classroom Code (#18, #19, #20)
+                        Column(modifier = Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                            Text("Código del aula (opcional)", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = AppColors.Purple)
+                            Text("Si el docente te proporcionó un código, puedes ingresarlo ahora. También podrás hacerlo más adelante.", fontSize = 11.sp, color = AppColors.Gray500)
+                            OutlinedTextField(
+                                value = classroomCodeInput,
+                                onValueChange = { classroomCodeInput = it.uppercase() },
+                                placeholder = { Text("Ej. MATH-2A-84F") },
+                                modifier = Modifier.fillMaxWidth(),
+                                shape = RoundedCornerShape(12.dp)
+                            )
+                        }
+
                         Spacer(modifier = Modifier.height(12.dp))
 
                         val isValid = parentName.isNotBlank() && childName.isNotBlank() && childSchool.isNotBlank() && childPin.length == 4 && !childGradeSelected.contains("Selecciona") && !childSeccionSelected.contains("Selecciona")
@@ -255,7 +269,7 @@ fun CompleteParentProfileScreen(
                                     "estudiante_pin" to childPin.toInt()
                                 )
 
-                                val childData = hashMapOf(
+                                val childData = hashMapOf<String, Any>(
                                     "nombre" to childName,
                                     "colegio" to childSchool,
                                     "grado" to childGradeSelected,
@@ -287,28 +301,47 @@ fun CompleteParentProfileScreen(
                                         "Series" to 0
                                     ),
                                     "incorrectas_por_tema" to emptyMap<String, Int>(),
-                                    "recomendaciones" to listOf("¡Realiza el Examen Adaptativo para descubrir tu nivel actual de matemáticas!")
+                                    "recomendaciones" to listOf("¡Realiza el Examen Adaptativo para descubrir tu nivel actual de matemáticas!"),
+                                    "aulas" to emptyList<String>()
                                 )
 
-                                // Save parent doc
-                                db.collection("usuarios").document(uid).set(parentData)
-                                    .addOnSuccessListener {
-                                        // Save child doc
-                                        db.collection("usuarios").document(childPin).set(childData)
-                                            .addOnSuccessListener {
-                                                isLoading = false
-                                                Toast.makeText(context, "¡Perfil de padre y estudiante creados!", Toast.LENGTH_SHORT).show()
-                                                onCompleteSuccess()
-                                            }
-                                            .addOnFailureListener { e ->
-                                                isLoading = false
-                                                Toast.makeText(context, "Error al crear perfil del niño: ${e.message}", Toast.LENGTH_SHORT).show()
-                                            }
+                                val proceedSave = { updatedChildData: Map<String, Any> ->
+                                    db.collection("usuarios").document(uid).set(parentData)
+                                        .addOnSuccessListener {
+                                            db.collection("usuarios").document(childPin).set(updatedChildData)
+                                                .addOnSuccessListener {
+                                                    isLoading = false
+                                                    Toast.makeText(context, "¡Perfil de padre y estudiante creados!", Toast.LENGTH_SHORT).show()
+                                                    onCompleteSuccess()
+                                                }
+                                                .addOnFailureListener { e ->
+                                                    isLoading = false
+                                                    Toast.makeText(context, "Error al crear perfil del niño: ${e.message}", Toast.LENGTH_SHORT).show()
+                                                }
+                                        }
+                                        .addOnFailureListener { e ->
+                                            isLoading = false
+                                            Toast.makeText(context, "Error al crear perfil del padre: ${e.message}", Toast.LENGTH_SHORT).show()
+                                        }
+                                }
+
+                                if (classroomCodeInput.trim().isNotBlank()) {
+                                    viewModel.validarCodigoAula(classroomCodeInput.trim()) { result ->
+                                        if (result is com.example.mathia.model.ClassroomValidationResult.Success) {
+                                            val validClassroom = result.classroom
+                                            childData["aulas"] = listOf(validClassroom.classroomId)
+                                            childData["docente_asignado"] = validClassroom.teacherName
+                                            if (validClassroom.section.isNotBlank()) childData["seccion"] = validClassroom.section
+                                            if (validClassroom.grade.isNotBlank()) childData["grado"] = validClassroom.grade
+                                            Toast.makeText(context, "¡Aula ${validClassroom.name} vinculada con éxito!", Toast.LENGTH_SHORT).show()
+                                        } else {
+                                            Toast.makeText(context, "Código de aula no encontrado. Podrás vincularlo más adelante.", Toast.LENGTH_SHORT).show()
+                                        }
+                                        proceedSave(childData)
                                     }
-                                    .addOnFailureListener { e ->
-                                        isLoading = false
-                                        Toast.makeText(context, "Error al crear perfil del padre: ${e.message}", Toast.LENGTH_SHORT).show()
-                                    }
+                                } else {
+                                    proceedSave(childData)
+                                }
                             },
                             enabled = isValid,
                             modifier = Modifier

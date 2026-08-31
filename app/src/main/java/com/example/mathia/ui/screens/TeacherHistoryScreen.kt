@@ -76,7 +76,7 @@ fun TeacherHistoryScreen(
                 // Since repository is internal, let's fetch directly.
             }
             // To simplify and ensure Clean Architecture, let's fetch using a coroutine from the DB
-            val dbRepo = com.example.mathia.FirebaseRepository()
+            val dbRepo = com.example.mathia.FirebaseRepository(com.google.firebase.firestore.FirebaseFirestore.getInstance())
             scope.launch {
                 try {
                     students.forEach { std ->

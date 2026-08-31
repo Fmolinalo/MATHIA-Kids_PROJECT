@@ -1,255 +1,210 @@
 package com.example.mathia.ui.screens
 
-import android.os.Build
 import androidx.compose.animation.core.*
-import androidx.compose.foundation.BorderStroke
-import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.PlayArrow
-import androidx.compose.material.icons.filled.Science
-import androidx.compose.ui.res.painterResource
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Star
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
-import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.Path
-import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.compose.ui.window.Dialog
-import coil.ImageLoader
-import coil.compose.AsyncImage
-import coil.decode.GifDecoder
-import coil.decode.ImageDecoderDecoder
 import com.example.mathia.AppColors
 import com.example.mathia.R
-import com.example.mathia.SeedDataRepository
-import com.example.mathia.StudentViewModel
-import kotlinx.coroutines.launch
+import com.example.mathia.ui.components.MathiaMascot
+import com.example.mathia.ui.components.MascotState
 
 @Composable
-fun WelcomeScreen(onCreateProfile: () -> Unit, onLogin: () -> Unit) {
-    val context = LocalContext.current
-    val imageLoader = remember(context) {
-        ImageLoader.Builder(context).components {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) add(ImageDecoderDecoder.Factory())
-            else add(GifDecoder.Factory())
-        }.build()
-    }
-
-    val infiniteTransition = rememberInfiniteTransition(label = "ajolote_pulse")
-    val scale by infiniteTransition.animateFloat(
-        initialValue = 0.95f,
-        targetValue = 1.05f,
+fun WelcomeScreen(
+    onCreateProfile: () -> Unit,
+    onLogin: () -> Unit
+) {
+    // Native Compose floating/bounce animation for axolotl
+    val infiniteTransition = rememberInfiniteTransition(label = "ajolote_bounce")
+    val offsetY by infiniteTransition.animateFloat(
+        initialValue = -8f,
+        targetValue = 8f,
         animationSpec = infiniteRepeatable(
-            animation = tween(1200, easing = FastOutSlowInEasing),
+            animation = tween(1500, easing = FastOutSlowInEasing),
             repeatMode = RepeatMode.Reverse
         ),
-        label = "scale"
+        label = "bounce"
     )
 
-    val starOffsets = remember {
-        List(12) {
-            Offset(
-                x = (50..950).random().toFloat(),
-                y = (100..1800).random().toFloat()
-            )
-        }
-    }
+    Box(modifier = Modifier.fillMaxSize()) {
+        // ── 1. FONDO COLORIDO DE PAISAJE MATHIA (BACKGROUND) ─────────────────
+        Image(
+            painter = painterResource(id = R.drawable.mathia_background),
+            contentDescription = null,
+            modifier = Modifier.fillMaxSize(),
+            contentScale = ContentScale.Crop
+        )
 
-    val scope = rememberCoroutineScope()
-    val seedRepo = remember { SeedDataRepository() }
-
-    // Setup dialog state
-    var showSetupDialog by remember { mutableStateOf(false) }
-    var showResultDialog by remember { mutableStateOf(false) }
-    var isSettingUp by remember { mutableStateOf(false) }
-    var setupLog by remember { mutableStateOf(mutableListOf<String>()) }
-    var setupResult by remember { mutableStateOf("") }
-
-    Box(modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
-        var demoChecked by remember { mutableStateOf(StudentViewModel.isDemoMode) }
-
-        // ── Switch Modo Demo (top right) ────────────────────────────────────
-        Row(
-            modifier = Modifier
-                .align(Alignment.TopEnd)
-                .padding(16.dp)
-                .statusBarsPadding(),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
-            Icon(
-                imageVector = Icons.Default.Science,
-                contentDescription = null,
-                modifier = Modifier.size(16.dp),
-                tint = if (demoChecked) AppColors.Green else AppColors.Gray600
-            )
-            Text(
-                text = "Demo Mode",
-                fontSize = 12.sp,
-                fontWeight = FontWeight.Bold,
-                color = if (demoChecked) AppColors.Green else AppColors.Gray600
-            )
-            Switch(
-                checked = demoChecked,
-                onCheckedChange = { checked ->
-                    demoChecked = checked
-                    StudentViewModel.isDemoMode = checked
-                },
-                colors = SwitchDefaults.colors(
-                    checkedThumbColor = AppColors.Green,
-                    checkedTrackColor = AppColors.Green.copy(alpha = 0.5f),
-                    uncheckedThumbColor = AppColors.Gray400,
-                    uncheckedTrackColor = AppColors.Gray200
-                )
-            )
-        }
-
-        // ── Canvas estrellas ─────────────────────────────────────────────────
-        Canvas(modifier = Modifier.fillMaxSize()) {
-            starOffsets.forEach { offset ->
-                val sz = 10f
-                val path = Path().apply {
-                    moveTo(offset.x, offset.y - sz)
-                    lineTo(offset.x + sz * 0.3f, offset.y - sz * 0.3f)
-                    lineTo(offset.x + sz, offset.y)
-                    lineTo(offset.x + sz * 0.3f, offset.y + sz * 0.3f)
-                    lineTo(offset.x, offset.y + sz)
-                    lineTo(offset.x - sz * 0.3f, offset.y + sz * 0.3f)
-                    lineTo(offset.x - sz, offset.y)
-                    lineTo(offset.x - sz * 0.3f, offset.y - sz * 0.3f)
-                    close()
-                }
-                drawPath(path, AppColors.Amber.copy(alpha = 0.7f))
-            }
-        }
-
-        // ── Contenido principal ──────────────────────────────────────────────
+        // ── 2. INTERFAZ COMPOSE PROGRAMÁTICA ENCIMA DEL FONDO ───────────────
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(32.dp),
+                .statusBarsPadding()
+                .navigationBarsPadding()
+                .padding(24.dp)
+                .verticalScroll(rememberScrollState()),
             horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.spacedBy(20.dp)
+            verticalArrangement = Arrangement.SpaceBetween
         ) {
-            // Logo Card
+            Spacer(Modifier.height(12.dp))
+
+            // Logo Header Card
             Card(
                 modifier = Modifier.fillMaxWidth(),
                 shape = RoundedCornerShape(24.dp),
-                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-                elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+                colors = CardDefaults.cardColors(containerColor = Color.White.copy(alpha = 0.95f)),
+                elevation = CardDefaults.cardElevation(defaultElevation = 4.dp)
             ) {
-                Column(
+                Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(vertical = 20.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally
+                        .padding(vertical = 14.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.Center
                 ) {
-                    Image(
-                        painter = painterResource(id = R.drawable.mathia_logo),
-                        contentDescription = "MathIA Logo",
-                        modifier = Modifier
-                            .fillMaxWidth(0.8f)
-                            .height(95.dp)
-                    )
-                    Spacer(Modifier.height(4.dp))
                     Text(
-                        "¡Aprende mates jugando!",
-                        fontSize = 13.sp,
-                        color = AppColors.Gray600
+                        "MathIA",
+                        fontSize = 32.sp,
+                        fontWeight = FontWeight.Black,
+                        color = AppColors.PrimaryBlue
+                    )
+                    Spacer(Modifier.width(8.dp))
+                    Text(
+                        "KIDS",
+                        fontSize = 18.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = AppColors.Coral
                     )
                 }
             }
 
-            // Ajolote
+            Spacer(Modifier.height(16.dp))
+
+            // ── 3. AJOLOTE NORMAL CON ANIMACIÓN FLOTANTE NATIVA ─────────────
             Box(
                 modifier = Modifier
-                    .size(150.dp)
-                    .background(AppColors.PinkLight, CircleShape),
+                    .offset(y = offsetY.dp)
+                    .size(170.dp)
+                    .clip(CircleShape)
+                    .background(Color.White.copy(alpha = 0.85f)),
                 contentAlignment = Alignment.Center
             ) {
                 Image(
-                    painter = painterResource(id = R.drawable.ajolote_student),
-                    contentDescription = "Mateo el Ajolote",
-                    modifier = Modifier
-                        .size(115.dp)
-                        .scale(scale)
+                    painter = painterResource(id = R.drawable.ajolote_default),
+                    contentDescription = "El Ajolote de MathIA",
+                    modifier = Modifier.size(140.dp)
                 )
             }
 
-            // Bienvenida
+            Spacer(Modifier.height(16.dp))
+
+            // ── 4. TÍTULO, DESCRIPCIÓN Y BENEFICIOS EN COMPOSE ──────────────
             Card(
                 modifier = Modifier.fillMaxWidth(),
                 shape = RoundedCornerShape(24.dp),
-                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-                elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+                colors = CardDefaults.cardColors(containerColor = Color.White.copy(alpha = 0.95f)),
+                elevation = CardDefaults.cardElevation(defaultElevation = 4.dp)
             ) {
                 Column(
-                    modifier = Modifier.padding(16.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally
+                    modifier = Modifier.padding(20.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
                     Text(
                         "¡Bienvenidos a MathIA!",
-                        fontSize = 20.sp,
-                        fontWeight = FontWeight.ExtraBold
-                    )
-                    Spacer(Modifier.height(6.dp))
-                    Text(
-                        "¡Hola! Soy Mateo, tu amigo ajolote.\n¡Vamos a aprender matemáticas juntos!",
-                        fontSize = 13.sp,
-                        color = AppColors.Gray600,
+                        fontSize = 24.sp,
+                        fontWeight = FontWeight.Black,
+                        color = AppColors.TextMain,
                         textAlign = TextAlign.Center
                     )
-                }
-            }
+                    Text(
+                        "¡Hola! Soy tu amigo el Ajolote. ¡Vamos a aprender matemáticas juntos!",
+                        fontSize = 14.sp,
+                        color = AppColors.TextSecondary,
+                        textAlign = TextAlign.Center
+                    )
 
-            // Botones
-            Column(
-                modifier = Modifier.fillMaxWidth(),
-                verticalArrangement = Arrangement.spacedBy(10.dp)
-            ) {
-                // ── BOTÓN PRINCIPAL ─────────────────────────────────────
-                Button(
-                    onClick = onLogin,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(56.dp),
-                    shape = RoundedCornerShape(50.dp),
-                    colors = ButtonDefaults.buttonColors(containerColor = AppColors.Purple)
-                ) {
+                    HorizontalDivider(
+                        color = AppColors.PrimaryBlue.copy(alpha = 0.2f),
+                        thickness = 1.dp,
+                        modifier = Modifier.padding(vertical = 4.dp)
+                    )
+
                     Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceEvenly,
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Icon(
-                            imageVector = Icons.Default.PlayArrow,
-                            contentDescription = null,
-                            tint = Color.White,
-                            modifier = Modifier.size(24.dp)
-                        )
-                        Text(
-                            "Comenzar",
-                            fontWeight = FontWeight.Bold,
-                            fontSize = 18.sp,
-                            color = Color.White
-                        )
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(4.dp)
+                        ) {
+                            Icon(Icons.Default.Star, null, tint = AppColors.Yellow, modifier = Modifier.size(18.dp))
+                            Text("Gana Estrellas", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = AppColors.TextMain)
+                        }
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(4.dp)
+                        ) {
+                            Icon(Icons.Default.Star, null, tint = AppColors.Coral, modifier = Modifier.size(18.dp))
+                            Text("Sube de Nivel", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = AppColors.TextMain)
+                        }
                     }
                 }
-
             }
+
+            Spacer(Modifier.height(24.dp))
+
+            // ── 5. BOTÓN COMENZAR EN COMPOSE (ÁREA TÁCTIL 56DP) ─────────────
+            Button(
+                onClick = onLogin,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(56.dp),
+                shape = RoundedCornerShape(50.dp),
+                colors = ButtonDefaults.buttonColors(containerColor = AppColors.PrimaryBlue),
+                elevation = ButtonDefaults.buttonElevation(defaultElevation = 6.dp)
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.PlayArrow,
+                        contentDescription = null,
+                        tint = Color.White,
+                        modifier = Modifier.size(24.dp)
+                    )
+                    Text(
+                        "Comenzar",
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 18.sp,
+                        color = Color.White
+                    )
+                }
+            }
+
+            Spacer(Modifier.height(16.dp))
         }
     }
 }

@@ -521,7 +521,7 @@ fun AdultAuthScreen(
                                     }
                                     .addOnFailureListener { e ->
                                         isLoading = false
-                                        Toast.makeText(context, "Error al registrar: ${e.message}. \nPrueba activando el 'Modo Demo' en la pantalla principal si no posees conexión a Firebase.", Toast.LENGTH_LONG).show()
+                                        Toast.makeText(context, "Error de autenticación: ${e.message}", Toast.LENGTH_LONG).show()
                                     }
                             }
                         },

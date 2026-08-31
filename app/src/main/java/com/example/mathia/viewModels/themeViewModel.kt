@@ -1,23 +1,22 @@
 package com.example.mathia.viewModels
 
-
 import androidx.lifecycle.ViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 
+import dagger.hilt.android.lifecycle.HiltViewModel
+import javax.inject.Inject
 
-enum class  ThemeMode {
-    LIGHT,
-    DARK,
-    SYSTEM
+enum class ThemeMode {
+    LIGHT
 }
 
- class ThemeViewModel : ViewModel(){
+@HiltViewModel
+class ThemeViewModel @Inject constructor() : ViewModel() {
+    private val _themeMode = MutableStateFlow(ThemeMode.LIGHT)
+    val themeMode: StateFlow<ThemeMode> = _themeMode
 
-     private val _themeMode = MutableStateFlow(ThemeMode.SYSTEM)
-     val themeMode: StateFlow<ThemeMode> = _themeMode
-
-     fun cambiarTema(nuevoModo: ThemeMode) {
-         _themeMode.value = nuevoModo
-     }
- }
+    fun cambiarTema(nuevoModo: ThemeMode = ThemeMode.LIGHT) {
+        _themeMode.value = ThemeMode.LIGHT
+    }
+}
